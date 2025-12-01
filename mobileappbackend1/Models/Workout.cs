@@ -12,6 +12,9 @@ namespace mobileappbackend1.Models
         public string Title { get; set; }
 
         [BsonRepresentation(BsonType.ObjectId)]
+        public string TrainerId { get; set; }
+
+        [BsonRepresentation(BsonType.ObjectId)]
         public string AthleteId { get; set; }
 
         public DateTime ScheduledDate { get; set; }

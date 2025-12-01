@@ -55,5 +55,16 @@ namespace mobileappbackend1.Services
             await _users.DeleteOneAsync(u => u.Id == id);
         }
 
+
+        public async Task<User?> ValidateUserAsync(string email, string password)
+        {
+            var user = await GetByEmailAsync(email);
+            if (user == null) return null;
+
+            if (user.PasswordHash != password) { return null; }
+
+            return user;
+            
+        }
     }
 }
