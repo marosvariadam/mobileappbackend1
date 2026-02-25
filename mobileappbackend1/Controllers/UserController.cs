@@ -13,16 +13,18 @@ namespace mobileappbackend1.Controllers
     public class UserController : ControllerBase
     {
         private readonly UserService _userService;
+        private readonly TokenService _tokenService;
 
-        public UserController(UserService userService)
+        public UserController(UserService userService, TokenService tokenService)
         {
             _userService = userService;
+            _tokenService = tokenService;
         }
 
-        // Trainers can list all users (paginated); athletes only see themselves
         [HttpGet]
         [Authorize(Roles = "Trainer")]
-        public async Task<ActionResult<List<User>>> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+        public async Task<ActionResult<List<User>>> GetAll(
+            [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
         {
             var users = await _userService.GetAllAsync(page, pageSize);
             return Ok(users);
@@ -32,10 +34,7 @@ namespace mobileappbackend1.Controllers
         public async Task<ActionResult<User>> Get(string id)
         {
             var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            var isTrainer = User.IsInRole("Trainer");
-
-            // Users can only retrieve their own profile unless they are a Trainer
-            if (!isTrainer && currentUserId != id)
+            if (!User.IsInRole("Trainer") && currentUserId != id)
                 return Forbid();
 
             var user = await _userService.GetByIdAsync(id);
@@ -43,7 +42,6 @@ namespace mobileappbackend1.Controllers
             return Ok(user);
         }
 
-        // A trainer can only retrieve their own athletes
         [HttpGet("my-athletes")]
         [Authorize(Roles = "Trainer")]
         public async Task<ActionResult<List<User>>> GetMyAthletes()
@@ -53,7 +51,6 @@ namespace mobileappbackend1.Controllers
             return Ok(athletes);
         }
 
-        // Registration is open to everyone
         [HttpPost("register")]
         [AllowAnonymous]
         public async Task<IActionResult> Register([FromBody] RegisterRequest request)
@@ -78,7 +75,6 @@ namespace mobileappbackend1.Controllers
             }
         }
 
-        // Users can only update their own profile
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(string id, [FromBody] UpdateUserRequest request)
         {
@@ -93,7 +89,23 @@ namespace mobileappbackend1.Controllers
             return NoContent();
         }
 
-        // Users can only delete their own account
+        [HttpPost("change-password")]
+        public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
+        {
+            var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+
+            var success = await _userService.ChangePasswordAsync(
+                currentUserId, request.CurrentPassword, request.NewPassword);
+
+            if (!success)
+                return BadRequest(new { message = "Current password is incorrect." });
+
+            // Revoke refresh token so all existing sessions must re-authenticate
+            await _userService.RevokeRefreshTokenAsync(currentUserId);
+
+            return NoContent();
+        }
+
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(string id)
         {
@@ -111,44 +123,25 @@ namespace mobileappbackend1.Controllers
 
     public class RegisterRequest
     {
-        [Required]
-        [MaxLength(100)]
-        public string FirstName { get; set; } = string.Empty;
-
-        [Required]
-        [MaxLength(100)]
-        public string LastName { get; set; } = string.Empty;
-
-        [Required]
-        [EmailAddress]
-        [MaxLength(256)]
-        public string Email { get; set; } = string.Empty;
-
-        [Required]
-        [MinLength(6)]
-        public string Password { get; set; } = string.Empty;
-
-        [Required]
-        public UserRole Role { get; set; }
-
+        [Required] [MaxLength(100)] public string FirstName { get; set; } = string.Empty;
+        [Required] [MaxLength(100)] public string LastName { get; set; } = string.Empty;
+        [Required] [EmailAddress] [MaxLength(256)] public string Email { get; set; } = string.Empty;
+        [Required] [MinLength(6)] public string Password { get; set; } = string.Empty;
+        [Required] public UserRole Role { get; set; }
         public string? TrainerId { get; set; }
     }
 
     public class UpdateUserRequest
     {
-        [Required]
-        [MaxLength(100)]
-        public string FirstName { get; set; } = string.Empty;
-
-        [Required]
-        [MaxLength(100)]
-        public string LastName { get; set; } = string.Empty;
-
-        [Required]
-        [EmailAddress]
-        [MaxLength(256)]
-        public string Email { get; set; } = string.Empty;
-
+        [Required] [MaxLength(100)] public string FirstName { get; set; } = string.Empty;
+        [Required] [MaxLength(100)] public string LastName { get; set; } = string.Empty;
+        [Required] [EmailAddress] [MaxLength(256)] public string Email { get; set; } = string.Empty;
         public string? TrainerId { get; set; }
+    }
+
+    public class ChangePasswordRequest
+    {
+        [Required] public string CurrentPassword { get; set; } = string.Empty;
+        [Required] [MinLength(6)] public string NewPassword { get; set; } = string.Empty;
     }
 }

@@ -44,7 +44,7 @@ namespace mobileappbackend1.Services
                 throw new InvalidOperationException("Email is already in use.");
 
             newUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword(plainTextPassword);
-            newUser.Id = null; // Let MongoDB generate the ObjectId
+            newUser.Id = null;
             newUser.CreatedAt = DateTime.UtcNow;
 
             await _users.InsertOneAsync(newUser);
@@ -75,6 +75,20 @@ namespace mobileappbackend1.Services
             if (!BCrypt.Net.BCrypt.Verify(password, user.PasswordHash)) return null;
 
             return user;
+        }
+
+        // Returns false if userId is not found or currentPassword is wrong
+        public async Task<bool> ChangePasswordAsync(string userId, string currentPassword, string newPassword)
+        {
+            var user = await GetByIdAsync(userId);
+            if (user == null) return false;
+
+            if (!BCrypt.Net.BCrypt.Verify(currentPassword, user.PasswordHash)) return false;
+
+            var newHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
+            var update = Builders<User>.Update.Set(u => u.PasswordHash, newHash);
+            await _users.UpdateOneAsync(u => u.Id == userId, update);
+            return true;
         }
 
         public async Task StoreRefreshTokenAsync(string userId, string tokenHash, DateTime expiry)

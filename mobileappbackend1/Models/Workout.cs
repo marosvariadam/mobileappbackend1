@@ -4,6 +4,8 @@ using MongoDB.Bson.Serialization.Attributes;
 
 namespace mobileappbackend1.Models
 {
+    public enum WorkoutStatus { Planned, InProgress, Completed }
+
     public class Workout
     {
         [BsonId]
@@ -13,6 +15,10 @@ namespace mobileappbackend1.Models
         [Required]
         [MaxLength(300)]
         public string Title { get; set; } = string.Empty;
+
+        // Session-level notes from the trainer, visible to athlete before they start
+        [MaxLength(2000)]
+        public string? TrainerNotes { get; set; }
 
         [BsonRepresentation(BsonType.ObjectId)]
         public string TrainerId { get; set; } = string.Empty;
@@ -24,9 +30,17 @@ namespace mobileappbackend1.Models
         [Required]
         public DateTime ScheduledDate { get; set; }
 
-        public bool IsCompleted { get; set; } = false;
+        [BsonRepresentation(BsonType.String)]
+        public WorkoutStatus Status { get; set; } = WorkoutStatus.Planned;
 
-        public List<WorkoutExercise> Exercises { get; set; } = new List<WorkoutExercise>();
+        public DateTime? StartedAt { get; set; }
+        public DateTime? CompletedAt { get; set; }
+
+        // Session-level feedback sent back to the trainer when the athlete submits
+        [MaxLength(2000)]
+        public string? AthleteFeedback { get; set; }
+
+        public List<WorkoutExercise> Exercises { get; set; } = new();
     }
 
     public class WorkoutExercise
@@ -39,6 +53,7 @@ namespace mobileappbackend1.Models
         [MaxLength(200)]
         public string Name { get; set; } = string.Empty;
 
+        // ── Prescribed by trainer ──────────────────────────────────────
         [Range(1, 100)]
         public int Sets { get; set; }
 
@@ -49,9 +64,15 @@ namespace mobileappbackend1.Models
         public double TargetWeightKg { get; set; }
 
         [MaxLength(1000)]
-        public string? AthleteNotes { get; set; }
+        public string? TrainerNotes { get; set; }
+
+        // ── Logged by athlete ──────────────────────────────────────────
+        public int? ActualSets { get; set; }
+        public int? ActualRepetitions { get; set; }
+        public double? ActualWeightKg { get; set; }
+        public bool IsCompleted { get; set; } = false;
 
         [MaxLength(1000)]
-        public string? TrainerNotes { get; set; }
+        public string? AthleteNotes { get; set; }
     }
 }

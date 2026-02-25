@@ -18,10 +18,15 @@ namespace mobileappbackend1.Controllers
             _exerciseService = exerciseService;
         }
 
+        // GET /api/exercise?search=squat&muscleGroup=Quads&page=1&pageSize=20
         [HttpGet]
-        public async Task<ActionResult<List<Exercise>>> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+        public async Task<ActionResult<List<Exercise>>> GetAll(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20,
+            [FromQuery] string? search = null,
+            [FromQuery] string? muscleGroup = null)
         {
-            var exercises = await _exerciseService.GetAllAsync(page, pageSize);
+            var exercises = await _exerciseService.GetAllAsync(page, pageSize, search, muscleGroup);
             return Ok(exercises);
         }
 
