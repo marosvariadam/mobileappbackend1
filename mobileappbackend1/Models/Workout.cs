@@ -1,6 +1,6 @@
-﻿using MongoDB.Bson;
+using System.ComponentModel.DataAnnotations;
+using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
-
 
 namespace mobileappbackend1.Models
 {
@@ -8,36 +8,50 @@ namespace mobileappbackend1.Models
     {
         [BsonId]
         [BsonRepresentation(BsonType.ObjectId)]
-        public string Id { get; set; }
-        public string Title { get; set; }
+        public string? Id { get; set; }
+
+        [Required]
+        [MaxLength(300)]
+        public string Title { get; set; } = string.Empty;
 
         [BsonRepresentation(BsonType.ObjectId)]
-        public string TrainerId { get; set; }
+        public string TrainerId { get; set; } = string.Empty;
 
+        [Required]
         [BsonRepresentation(BsonType.ObjectId)]
-        public string AthleteId { get; set; }
+        public string AthleteId { get; set; } = string.Empty;
 
+        [Required]
         public DateTime ScheduledDate { get; set; }
 
         public bool IsCompleted { get; set; } = false;
 
         public List<WorkoutExercise> Exercises { get; set; } = new List<WorkoutExercise>();
     }
+
     public class WorkoutExercise
     {
+        [Required]
         [BsonRepresentation(BsonType.ObjectId)]
-        public string ExerciseId { get; set; }
+        public string ExerciseId { get; set; } = string.Empty;
 
-        public string Name { get; set; }
+        [Required]
+        [MaxLength(200)]
+        public string Name { get; set; } = string.Empty;
+
+        [Range(1, 100)]
         public int Sets { get; set; }
-        public int TargetRepetitions { get; set; }
-        public double TargetWeightKg { get; set; } // kg
 
+        [Range(1, 10000)]
+        public int TargetRepetitions { get; set; }
+
+        [Range(0, 10000)]
+        public double TargetWeightKg { get; set; }
+
+        [MaxLength(1000)]
         public string? AthleteNotes { get; set; }
 
+        [MaxLength(1000)]
         public string? TrainerNotes { get; set; }
     }
 }
-
-
-

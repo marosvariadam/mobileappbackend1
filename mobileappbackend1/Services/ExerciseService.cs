@@ -1,4 +1,4 @@
-﻿using mobileappbackend1.Models;
+using mobileappbackend1.Models;
 using MongoDB.Driver;
 
 namespace mobileappbackend1.Services
@@ -12,9 +12,13 @@ namespace mobileappbackend1.Services
             _exercises = database.GetCollection<Exercise>("Exercises");
         }
 
-        public async Task<List<Exercise>> GetAllAsync()
+        public async Task<List<Exercise>> GetAllAsync(int page = 1, int pageSize = 20)
         {
-            return await _exercises.Find(_ => true).ToListAsync();
+            pageSize = Math.Clamp(pageSize, 1, 100);
+            return await _exercises.Find(_ => true)
+                                   .Skip((page - 1) * pageSize)
+                                   .Limit(pageSize)
+                                   .ToListAsync();
         }
 
         public async Task<Exercise?> GetByIdAsync(string id)

@@ -1,4 +1,4 @@
-﻿using mobileappbackend1.Models;
+using mobileappbackend1.Models;
 using MongoDB.Driver;
 
 namespace mobileappbackend1.Services
@@ -12,9 +12,13 @@ namespace mobileappbackend1.Services
             _users = database.GetCollection<User>("Users");
         }
 
-        public async Task<List<User>> GetAllAsync()
+        public async Task<List<User>> GetAllAsync(int page = 1, int pageSize = 20)
         {
-            return await _users.Find(_ => true).ToListAsync();
+            pageSize = Math.Clamp(pageSize, 1, 100);
+            return await _users.Find(_ => true)
+                               .Skip((page - 1) * pageSize)
+                               .Limit(pageSize)
+                               .ToListAsync();
         }
 
         public async Task<User?> GetByIdAsync(string id)
@@ -33,21 +37,29 @@ namespace mobileappbackend1.Services
                                .ToListAsync();
         }
 
-
-        public async Task CreateAsync(User newUser)
+        public async Task CreateAsync(User newUser, string plainTextPassword)
         {
             var existing = await GetByEmailAsync(newUser.Email);
             if (existing != null)
-            {
-                throw new Exception("Az email már használatban van.");
-            }
+                throw new InvalidOperationException("Email is already in use.");
+
+            newUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword(plainTextPassword);
+            newUser.Id = null; // Let MongoDB generate the ObjectId
+            newUser.CreatedAt = DateTime.UtcNow;
 
             await _users.InsertOneAsync(newUser);
         }
 
-        public async Task UpdateAsync(string id, User updatedUser)
+        // Partial update — only non-sensitive fields; password changes go through ChangePasswordAsync
+        public async Task UpdateAsync(string id, string firstName, string lastName, string email, string? trainerId)
         {
-            await _users.ReplaceOneAsync(u => u.Id == id, updatedUser);
+            var update = Builders<User>.Update
+                .Set(u => u.FirstName, firstName)
+                .Set(u => u.LastName, lastName)
+                .Set(u => u.Email, email)
+                .Set(u => u.TrainerId, trainerId);
+
+            await _users.UpdateOneAsync(u => u.Id == id, update);
         }
 
         public async Task RemoveAsync(string id)
@@ -55,16 +67,32 @@ namespace mobileappbackend1.Services
             await _users.DeleteOneAsync(u => u.Id == id);
         }
 
-
         public async Task<User?> ValidateUserAsync(string email, string password)
         {
             var user = await GetByEmailAsync(email);
             if (user == null) return null;
 
-            if (user.PasswordHash != password) { return null; }
+            if (!BCrypt.Net.BCrypt.Verify(password, user.PasswordHash)) return null;
 
             return user;
-            
+        }
+
+        public async Task StoreRefreshTokenAsync(string userId, string tokenHash, DateTime expiry)
+        {
+            var update = Builders<User>.Update
+                .Set(u => u.RefreshTokenHash, tokenHash)
+                .Set(u => u.RefreshTokenExpiry, expiry);
+
+            await _users.UpdateOneAsync(u => u.Id == userId, update);
+        }
+
+        public async Task RevokeRefreshTokenAsync(string userId)
+        {
+            var update = Builders<User>.Update
+                .Unset(u => u.RefreshTokenHash)
+                .Unset(u => u.RefreshTokenExpiry);
+
+            await _users.UpdateOneAsync(u => u.Id == userId, update);
         }
     }
 }
