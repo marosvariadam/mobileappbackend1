@@ -12,15 +12,6 @@ namespace mobileappbackend1.Services
             _users = database.GetCollection<User>("Users");
         }
 
-        public async Task<List<User>> GetAllAsync(int page = 1, int pageSize = 20)
-        {
-            pageSize = Math.Clamp(pageSize, 1, 100);
-            return await _users.Find(_ => true)
-                               .Skip((page - 1) * pageSize)
-                               .Limit(pageSize)
-                               .ToListAsync();
-        }
-
         public async Task<User?> GetByIdAsync(string id)
         {
             return await _users.Find(u => u.Id == id).FirstOrDefaultAsync();
@@ -31,10 +22,16 @@ namespace mobileappbackend1.Services
             return await _users.Find(u => u.Email == email).FirstOrDefaultAsync();
         }
 
-        public async Task<List<User>> GetAthletesByTrainerIdAsync(string trainerId)
+        public async Task<List<User>> GetAthletesByTrainerIdAsync(
+            string trainerId, int page = 1, int pageSize = 50)
         {
-            return await _users.Find(u => u.Role == UserRole.Athlete && u.TrainerId == trainerId)
-                               .ToListAsync();
+            pageSize = Math.Clamp(pageSize, 1, 100);
+            return await _users
+                .Find(u => u.Role == UserRole.Athlete && u.TrainerId == trainerId)
+                .SortBy(u => u.LastName)
+                .Skip((page - 1) * pageSize)
+                .Limit(pageSize)
+                .ToListAsync();
         }
 
         public async Task CreateAsync(User newUser, string plainTextPassword)
@@ -75,6 +72,18 @@ namespace mobileappbackend1.Services
             if (!BCrypt.Net.BCrypt.Verify(password, user.PasswordHash)) return null;
 
             return user;
+        }
+
+        /// <summary>
+        /// Overwrites a user's password without requiring the old one.
+        /// Intended for trainer-initiated athlete password resets only.
+        /// The caller must have already verified ownership before calling this.
+        /// </summary>
+        public async Task SetPasswordAsync(string userId, string newPassword)
+        {
+            var newHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
+            var update = Builders<User>.Update.Set(u => u.PasswordHash, newHash);
+            await _users.UpdateOneAsync(u => u.Id == userId, update);
         }
 
         // Returns false if userId is not found or currentPassword is wrong
