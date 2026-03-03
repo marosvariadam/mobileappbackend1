@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using MongoDB.Driver;
+using mobileappbackend1.Hubs;
 using mobileappbackend1.Models;
 using mobileappbackend1.Services;
 using mobileappbackend1.Settings;
@@ -13,7 +14,8 @@ internal class Program
     {
         var builder = WebApplication.CreateBuilder(args);
 
-        // MongoDB
+        // ── MongoDB ───────────────────────────────────────────────────────────
+
         builder.Services.Configure<MongoDbSettings>(
             builder.Configuration.GetSection("MongoDbSettings"));
 
@@ -25,18 +27,28 @@ internal class Program
 
         builder.Services.AddScoped(s =>
         {
-            var client = s.GetRequiredService<IMongoClient>();
+            var client   = s.GetRequiredService<IMongoClient>();
             var settings = builder.Configuration.GetSection("MongoDbSettings").Get<MongoDbSettings>();
             return client.GetDatabase(settings!.DatabaseName);
         });
 
-        // Application services (no duplicates)
+        // ── Application services ──────────────────────────────────────────────
+
         builder.Services.AddScoped<UserService>();
         builder.Services.AddScoped<WorkoutService>();
         builder.Services.AddScoped<ExerciseService>();
+        builder.Services.AddScoped<MessageService>();
         builder.Services.AddScoped<TokenService>();
 
-        // CORS — origins are read from config so they can be set per environment
+        // ── CORS ──────────────────────────────────────────────────────────────
+        //
+        // SignalR WebSocket / SSE transports require the browser to send credentials,
+        // so AllowCredentials() is mandatory. ASP.NET Core forbids combining
+        // AllowAnyOrigin() with AllowCredentials(), so we use SetIsOriginAllowed
+        // as a dev-only fallback when no explicit origins are configured.
+        //
+        // In production always set Cors:AllowedOrigins in appsettings / env vars.
+
         var allowedOrigins = builder.Configuration
             .GetSection("Cors:AllowedOrigins")
             .Get<string[]>() ?? Array.Empty<string>();
@@ -46,14 +58,28 @@ internal class Program
             options.AddDefaultPolicy(policy =>
             {
                 if (allowedOrigins.Length > 0)
-                    policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod();
+                    policy.WithOrigins(allowedOrigins)
+                          .AllowAnyHeader()
+                          .AllowAnyMethod()
+                          .AllowCredentials();
                 else
-                    policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod();
+                    // Dev fallback — not safe for production
+                    policy.SetIsOriginAllowed(_ => true)
+                          .AllowAnyHeader()
+                          .AllowAnyMethod()
+                          .AllowCredentials();
             });
         });
 
-        // Health checks
+        // ── SignalR ───────────────────────────────────────────────────────────
+
+        builder.Services.AddSignalR();
+
+        // ── Health checks ─────────────────────────────────────────────────────
+
         builder.Services.AddHealthChecks();
+
+        // ── Controllers & Swagger ─────────────────────────────────────────────
 
         builder.Services.AddControllers();
         builder.Services.AddEndpointsApiExplorer();
@@ -64,10 +90,10 @@ internal class Program
             c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
             {
                 Description = "JWT Authorization header. Format: Bearer {token}",
-                Name = "Authorization",
-                In = ParameterLocation.Header,
-                Type = SecuritySchemeType.ApiKey,
-                Scheme = "Bearer"
+                Name        = "Authorization",
+                In          = ParameterLocation.Header,
+                Type        = SecuritySchemeType.ApiKey,
+                Scheme      = "Bearer"
             });
 
             c.AddSecurityRequirement(new OpenApiSecurityRequirement
@@ -75,65 +101,111 @@ internal class Program
                 {
                     new OpenApiSecurityScheme
                     {
-                        Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" },
+                        Reference = new OpenApiReference
+                            { Type = ReferenceType.SecurityScheme, Id = "Bearer" },
                         Scheme = "oauth2",
-                        Name = "Bearer",
-                        In = ParameterLocation.Header
+                        Name   = "Bearer",
+                        In     = ParameterLocation.Header
                     },
                     new List<string>()
                 }
             });
         });
 
-        // JWT — SecretKey must be set via environment variable (JwtSettings__SecretKey) in production
+        // ── JWT ───────────────────────────────────────────────────────────────
+
         var jwtSettings = builder.Configuration.GetSection("JwtSettings");
-        var secretKey = jwtSettings["SecretKey"]
+        var secretKey   = jwtSettings["SecretKey"]
             ?? throw new InvalidOperationException("JwtSettings:SecretKey is not configured.");
         var key = Encoding.ASCII.GetBytes(secretKey);
 
         builder.Services.AddAuthentication(options =>
         {
             options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-            options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+            options.DefaultChallengeScheme    = JwtBearerDefaults.AuthenticationScheme;
         })
         .AddJwtBearer(options =>
         {
             // Require HTTPS in production; allow HTTP in development only
             options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
             options.SaveToken = true;
+
             options.TokenValidationParameters = new TokenValidationParameters
             {
                 ValidateIssuerSigningKey = true,
-                IssuerSigningKey = new SymmetricSecurityKey(key),
-                ValidateIssuer = true,
-                ValidateAudience = true,
-                ValidIssuer = jwtSettings["Issuer"],
-                ValidAudience = jwtSettings["Audience"]
+                IssuerSigningKey         = new SymmetricSecurityKey(key),
+                ValidateIssuer           = true,
+                ValidateAudience         = true,
+                ValidIssuer              = jwtSettings["Issuer"],
+                ValidAudience            = jwtSettings["Audience"]
+            };
+
+            // SignalR WebSocket upgrades cannot set the Authorization header,
+            // so the client passes the JWT as ?access_token= in the query string.
+            // We read it here and hand it to the normal JWT validation pipeline.
+            options.Events = new JwtBearerEvents
+            {
+                OnMessageReceived = context =>
+                {
+                    var accessToken = context.Request.Query["access_token"];
+                    var path        = context.HttpContext.Request.Path;
+
+                    if (!string.IsNullOrEmpty(accessToken) &&
+                        path.StartsWithSegments("/hubs/chat"))
+                    {
+                        context.Token = accessToken;
+                    }
+
+                    return Task.CompletedTask;
+                }
             };
         });
 
+        // ── Build ─────────────────────────────────────────────────────────────
+
         var app = builder.Build();
 
-        // Create MongoDB indexes at startup (idempotent)
+        // ── MongoDB indexes (idempotent — safe to run every startup) ──────────
+
         using (var scope = app.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<IMongoDatabase>();
 
+            // Users: unique email
             var users = db.GetCollection<User>("Users");
             users.Indexes.CreateOne(new CreateIndexModel<User>(
                 Builders<User>.IndexKeys.Ascending(u => u.Email),
                 new CreateIndexOptions { Unique = true }));
 
+            // Workouts: athlete and trainer lookups
             var workouts = db.GetCollection<Workout>("Workouts");
             workouts.Indexes.CreateOne(new CreateIndexModel<Workout>(
                 Builders<Workout>.IndexKeys.Ascending(w => w.AthleteId)));
             workouts.Indexes.CreateOne(new CreateIndexModel<Workout>(
                 Builders<Workout>.IndexKeys.Ascending(w => w.TrainerId)));
 
+            // Exercises: trainer filter
             var exercises = db.GetCollection<Exercise>("Exercises");
             exercises.Indexes.CreateOne(new CreateIndexModel<Exercise>(
                 Builders<Exercise>.IndexKeys.Ascending(e => e.CreatedByTrainerId)));
+
+            // Messages
+            var messages = db.GetCollection<Message>("Messages");
+
+            // Fast conversation fetch + chronological sort
+            messages.Indexes.CreateOne(new CreateIndexModel<Message>(
+                Builders<Message>.IndexKeys
+                    .Ascending(m => m.ConversationId)
+                    .Descending(m => m.SentAt)));
+
+            // Fast unread-count queries (used in aggregation + MarkAsRead)
+            messages.Indexes.CreateOne(new CreateIndexModel<Message>(
+                Builders<Message>.IndexKeys
+                    .Ascending(m => m.RecipientId)
+                    .Ascending(m => m.IsRead)));
         }
+
+        // ── Middleware pipeline ───────────────────────────────────────────────
 
         if (app.Environment.IsDevelopment())
         {
@@ -142,12 +214,13 @@ internal class Program
         }
 
         app.UseHttpsRedirection();
-        app.UseCors();
+        app.UseCors();           // must be before Auth so OPTIONS pre-flights are handled
         app.UseAuthentication();
         app.UseAuthorization();
 
         app.MapHealthChecks("/health");
         app.MapControllers();
+        app.MapHub<ChatHub>("/hubs/chat");
 
         app.Run();
     }
