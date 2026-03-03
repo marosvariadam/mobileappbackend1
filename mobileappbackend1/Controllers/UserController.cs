@@ -12,11 +12,13 @@ namespace mobileappbackend1.Controllers
     [Authorize]
     public class UserController : ControllerBase
     {
-        private readonly UserService _userService;
+        private readonly UserService           _userService;
+        private readonly TrainerRequestService _requestService;
 
-        public UserController(UserService userService)
+        public UserController(UserService userService, TrainerRequestService requestService)
         {
-            _userService = userService;
+            _userService    = userService;
+            _requestService = requestService;
         }
 
         // ── Trainer: view their roster ────────────────────────────────────────
@@ -96,6 +98,61 @@ namespace mobileappbackend1.Controllers
 
                 await _userService.CreateAsync(trainer, request.Password);
                 return CreatedAtAction(nameof(Get), new { id = trainer.Id }, trainer);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(new { message = ex.Message });
+            }
+        }
+
+        // ── Athlete self-registration ─────────────────────────────────────────
+
+        /// <summary>
+        /// Public self-registration for athletes.
+        ///
+        /// Optionally supply the trainer's email address to automatically send them
+        /// a join request. The trainer still needs to accept before the athlete
+        /// appears in their roster.
+        ///
+        /// An optional introductory note (sport background, goals, availability, etc.)
+        /// is attached to the join request and shown to the trainer.
+        /// </summary>
+        [HttpPost("register-athlete")]
+        [AllowAnonymous]
+        public async Task<IActionResult> RegisterAthlete([FromBody] RegisterAthleteRequest request)
+        {
+            try
+            {
+                var athlete = new User
+                {
+                    FirstName = request.FirstName,
+                    LastName  = request.LastName,
+                    Email     = request.Email,
+                    Role      = UserRole.Athlete   // always Athlete — never accepted from client
+                };
+
+                await _userService.CreateAsync(athlete, request.Password);
+
+                // If a trainer email was supplied, automatically send a join request
+                if (!string.IsNullOrWhiteSpace(request.TrainerEmail))
+                {
+                    var trainer = await _userService.GetByEmailAsync(request.TrainerEmail);
+                    if (trainer?.Role == UserRole.Trainer)
+                    {
+                        try
+                        {
+                            await _requestService.CreateAsync(
+                                athlete.Id!, trainer.Id!, request.Note);
+                        }
+                        catch
+                        {
+                            // Non-fatal: account was created successfully even if the
+                            // join request fails (e.g. trainer not found, duplicate).
+                        }
+                    }
+                }
+
+                return CreatedAtAction(nameof(Get), new { id = athlete.Id }, athlete);
             }
             catch (InvalidOperationException ex)
             {
@@ -254,6 +311,28 @@ namespace mobileappbackend1.Controllers
     }
 
     // ── Request DTOs ──────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Athlete self-registration.
+    /// Role is always Athlete server-side.
+    /// TrainerEmail is optional — if supplied a join request is auto-created.
+    /// </summary>
+    public class RegisterAthleteRequest
+    {
+        [Required] [MaxLength(100)] public string FirstName { get; set; } = string.Empty;
+        [Required] [MaxLength(100)] public string LastName  { get; set; } = string.Empty;
+        [Required] [EmailAddress]  [MaxLength(256)] public string Email    { get; set; } = string.Empty;
+        [Required] [MinLength(8)]  public string Password   { get; set; } = string.Empty;
+
+        /// <summary>If provided, a join request is automatically sent to this trainer.</summary>
+        [EmailAddress] public string? TrainerEmail { get; set; }
+
+        /// <summary>
+        /// Optional intro to the trainer: sport history, goals, injuries, availability, etc.
+        /// Shown to the trainer alongside the join request.
+        /// </summary>
+        [MaxLength(500)] public string? Note { get; set; }
+    }
 
     /// <summary>Trainer self-registration. Role is always set server-side to Trainer.</summary>
     public class RegisterTrainerRequest

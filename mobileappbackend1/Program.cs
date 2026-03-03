@@ -39,6 +39,9 @@ internal class Program
         builder.Services.AddScoped<ExerciseService>();
         builder.Services.AddScoped<MessageService>();
         builder.Services.AddScoped<TokenService>();
+        builder.Services.AddScoped<NotificationService>();
+        builder.Services.AddScoped<OnboardingFormService>();
+        builder.Services.AddScoped<TrainerRequestService>();
 
         // ── CORS ──────────────────────────────────────────────────────────────
         //
@@ -203,6 +206,40 @@ internal class Program
                 Builders<Message>.IndexKeys
                     .Ascending(m => m.RecipientId)
                     .Ascending(m => m.IsRead)));
+
+            // TrainerRequests
+            var trainerRequests = db.GetCollection<TrainerRequest>("TrainerRequests");
+            trainerRequests.Indexes.CreateOne(new CreateIndexModel<TrainerRequest>(
+                Builders<TrainerRequest>.IndexKeys
+                    .Ascending(r => r.TrainerId)
+                    .Ascending(r => r.Status)));
+            trainerRequests.Indexes.CreateOne(new CreateIndexModel<TrainerRequest>(
+                Builders<TrainerRequest>.IndexKeys.Ascending(r => r.AthleteId)));
+
+            // Notifications
+            var notifications = db.GetCollection<Notification>("Notifications");
+            notifications.Indexes.CreateOne(new CreateIndexModel<Notification>(
+                Builders<Notification>.IndexKeys
+                    .Ascending(n => n.UserId)
+                    .Descending(n => n.CreatedAt)));
+            notifications.Indexes.CreateOne(new CreateIndexModel<Notification>(
+                Builders<Notification>.IndexKeys
+                    .Ascending(n => n.UserId)
+                    .Ascending(n => n.IsRead)));
+
+            // OnboardingForms: one form per trainer
+            var onboardingForms = db.GetCollection<OnboardingForm>("OnboardingForms");
+            onboardingForms.Indexes.CreateOne(new CreateIndexModel<OnboardingForm>(
+                Builders<OnboardingForm>.IndexKeys.Ascending(f => f.TrainerId),
+                new CreateIndexOptions { Unique = true }));
+
+            // OnboardingResponses: one response per athlete per trainer
+            var onboardingResponses = db.GetCollection<OnboardingResponse>("OnboardingResponses");
+            onboardingResponses.Indexes.CreateOne(new CreateIndexModel<OnboardingResponse>(
+                Builders<OnboardingResponse>.IndexKeys
+                    .Ascending(r => r.AthleteId)
+                    .Ascending(r => r.TrainerId),
+                new CreateIndexOptions { Unique = true }));
         }
 
         // ── Middleware pipeline ───────────────────────────────────────────────

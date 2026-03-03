@@ -64,6 +64,16 @@ namespace mobileappbackend1.Services
             await _users.DeleteOneAsync(u => u.Id == id);
         }
 
+        /// <summary>
+        /// Links an athlete to a trainer after a join request is accepted.
+        /// Only called by TrainerRequestService — not exposed through the API directly.
+        /// </summary>
+        public async Task SetTrainerIdAsync(string athleteId, string trainerId)
+        {
+            var update = Builders<User>.Update.Set(u => u.TrainerId, trainerId);
+            await _users.UpdateOneAsync(u => u.Id == athleteId, update);
+        }
+
         public async Task<User?> ValidateUserAsync(string email, string password)
         {
             var user = await GetByEmailAsync(email);
