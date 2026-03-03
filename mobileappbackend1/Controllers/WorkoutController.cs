@@ -42,20 +42,21 @@ namespace mobileappbackend1.Controllers
 
             var workout = new Workout
             {
-                TrainerId    = trainerId,
-                AthleteId    = request.AthleteId,
-                Title        = request.Title,
-                TrainerNotes = request.TrainerNotes,
+                TrainerId     = trainerId,
+                AthleteId     = request.AthleteId,
+                Title         = request.Title,
+                TrainerNotes  = request.TrainerNotes,
+                Difficulty    = request.Difficulty,
                 ScheduledDate = request.ScheduledDate,
-                Status       = WorkoutStatus.Planned,
-                Exercises    = request.Exercises.Select(e => new WorkoutExercise
+                Status        = WorkoutStatus.Planned,
+                Exercises     = request.Exercises.Select(e => new WorkoutExercise
                 {
                     ExerciseId        = e.ExerciseId,
                     Name              = e.Name,
                     Sets              = e.Sets,
                     TargetRepetitions = e.TargetRepetitions,
                     TargetWeightKg    = e.TargetWeightKg,
-                    TrainerNotes      = e.TrainerNotes
+                    TrainerNotes      = e.Instructions
                 }).ToList()
             };
 
@@ -87,11 +88,12 @@ namespace mobileappbackend1.Controllers
                 Sets              = e.Sets,
                 TargetRepetitions = e.TargetRepetitions,
                 TargetWeightKg    = e.TargetWeightKg,
-                TrainerNotes      = e.TrainerNotes
+                TrainerNotes      = e.Instructions
             }).ToList();
 
             await _workoutService.UpdateAsync(
-                id, request.Title, request.TrainerNotes, request.ScheduledDate, exercises);
+                id, request.Title, request.TrainerNotes, request.Difficulty,
+                request.ScheduledDate, exercises);
 
             return NoContent();
         }
@@ -140,6 +142,25 @@ namespace mobileappbackend1.Controllers
             if (trainerId == null) return Unauthorized();
 
             var workouts = await _workoutService.GetByTrainerIdAsync(trainerId, page, pageSize);
+            return Ok(workouts);
+        }
+
+        /// <summary>
+        /// Trainer calendar: all sessions they created within a date window, for any of their athletes.
+        /// Example: GET /api/workout/trainer/calendar?from=2025-03-01&to=2025-03-31
+        /// </summary>
+        [HttpGet("trainer/calendar")]
+        [Authorize(Roles = "Trainer")]
+        public async Task<ActionResult<List<Workout>>> GetTrainerCalendar(
+            [FromQuery] DateTime from, [FromQuery] DateTime to)
+        {
+            if (to < from)
+                return BadRequest(new { message = "'to' must be after 'from'." });
+            if ((to - from).TotalDays > 365)
+                return BadRequest(new { message = "Date range cannot exceed 365 days." });
+
+            var trainerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+            var workouts = await _workoutService.GetByDateRangeForTrainerAsync(trainerId, from, to);
             return Ok(workouts);
         }
 
@@ -276,15 +297,24 @@ namespace mobileappbackend1.Controllers
     /// <summary>Trainer uses this to create or update a session.</summary>
     public class CreateWorkoutRequest
     {
+        /// <summary>Short session title, e.g. "Upper Body Strength".</summary>
         [Required] [MaxLength(300)]
         public string Title { get; set; } = string.Empty;
 
+        /// <summary>
+        /// Free-text description / motivational note visible to the athlete before they start.
+        /// E.g. "Focus on controlled negatives today. Rest 2 min between sets."
+        /// </summary>
         [MaxLength(2000)]
         public string? TrainerNotes { get; set; }
+
+        /// <summary>How demanding this session is intended to be.</summary>
+        public DifficultyLevel Difficulty { get; set; } = DifficultyLevel.Moderate;
 
         [Required]
         public string AthleteId { get; set; } = string.Empty;
 
+        /// <summary>The date this session should appear on in both calendars.</summary>
         [Required]
         public DateTime ScheduledDate { get; set; }
 
@@ -294,12 +324,18 @@ namespace mobileappbackend1.Controllers
 
     public class CreateWorkoutExerciseItem
     {
+        /// <summary>Id from the exercise catalogue (built-in or trainer's own custom exercise).</summary>
         [Required] public string ExerciseId { get; set; } = string.Empty;
+
+        /// <summary>Display name — populated from the catalogue on the client side.</summary>
         [Required] [MaxLength(200)] public string Name { get; set; } = string.Empty;
+
         [Range(1, 100)] public int Sets { get; set; }
         [Range(1, 10000)] public int TargetRepetitions { get; set; }
         [Range(0, 10000)] public double TargetWeightKg { get; set; }
-        [MaxLength(1000)] public string? TrainerNotes { get; set; }
+
+        /// <summary>Per-exercise instructions, e.g. "Keep elbows tucked. Pause at bottom."</summary>
+        [MaxLength(1000)] public string? Instructions { get; set; }
     }
 
     /// <summary>Athlete logs actual results for one exercise.</summary>

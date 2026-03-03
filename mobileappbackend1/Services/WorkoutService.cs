@@ -53,6 +53,16 @@ namespace mobileappbackend1.Services
                 .ToListAsync();
         }
 
+        // Trainer: all sessions they created within a date window for their own calendar view
+        public async Task<List<Workout>> GetByDateRangeForTrainerAsync(
+            string trainerId, DateTime from, DateTime to)
+        {
+            return await _workouts
+                .Find(w => w.TrainerId == trainerId && w.ScheduledDate >= from && w.ScheduledDate <= to)
+                .SortBy(w => w.ScheduledDate)
+                .ToListAsync();
+        }
+
         // Trainer: review completed sessions, optionally filtered to one athlete
         public async Task<List<Workout>> GetCompletedByTrainerIdAsync(
             string trainerId, string? athleteId, int page = 1, int pageSize = 20)
@@ -73,14 +83,15 @@ namespace mobileappbackend1.Services
                                   .ToListAsync();
         }
 
-        // Trainer: edit session title, notes, date, exercise list — only while status is Planned
+        // Trainer: edit session title, notes, difficulty, date, exercise list — only while status is Planned
         public async Task UpdateAsync(
             string id, string title, string? trainerNotes,
-            DateTime scheduledDate, List<WorkoutExercise> exercises)
+            DifficultyLevel difficulty, DateTime scheduledDate, List<WorkoutExercise> exercises)
         {
             var update = Builders<Workout>.Update
                 .Set(w => w.Title, title)
                 .Set(w => w.TrainerNotes, trainerNotes)
+                .Set(w => w.Difficulty, difficulty)
                 .Set(w => w.ScheduledDate, scheduledDate)
                 .Set(w => w.Exercises, exercises);
 

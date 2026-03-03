@@ -6,6 +6,9 @@ namespace mobileappbackend1.Models
 {
     public enum WorkoutStatus { Planned, InProgress, Completed }
 
+    /// <summary>Perceived-exertion scale the trainer uses to label a session.</summary>
+    public enum DifficultyLevel { Easy = 1, Moderate = 2, Hard = 3, Intense = 4 }
+
     public class Workout
     {
         [BsonId]
@@ -29,6 +32,10 @@ namespace mobileappbackend1.Models
 
         [Required]
         public DateTime ScheduledDate { get; set; }
+
+        /// <summary>How hard the trainer intends this session to be.</summary>
+        [BsonRepresentation(BsonType.String)]
+        public DifficultyLevel Difficulty { get; set; } = DifficultyLevel.Moderate;
 
         [BsonRepresentation(BsonType.String)]
         public WorkoutStatus Status { get; set; } = WorkoutStatus.Planned;
