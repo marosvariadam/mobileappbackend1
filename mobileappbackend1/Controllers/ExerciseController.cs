@@ -50,6 +50,25 @@ namespace mobileappbackend1.Controllers
             return CreatedAtAction(nameof(GetById), new { id = exercise.Id }, exercise);
         }
 
+        [HttpPut("{id}")]
+        [Authorize]
+        public async Task<IActionResult> Update(string id, [FromBody] UpdateExerciseRequest request)
+        {
+            var existing = await _exerciseService.GetByIdAsync(id);
+            if (existing == null) return NotFound();
+
+            if (existing.CreatedByTrainerId != null)
+            {
+                var currentTrainerId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (existing.CreatedByTrainerId != currentTrainerId)
+                    return Forbid();
+            }
+
+            await _exerciseService.UpdateAsync(id, request.Name, request.MuscleGroup, request.Description, request.Equipment);
+            var updated = await _exerciseService.GetByIdAsync(id);
+            return Ok(updated);
+        }
+
         [HttpDelete("{id}")]
         [Authorize(Roles = "Trainer")]
         public async Task<IActionResult> Delete(string id)
@@ -67,5 +86,22 @@ namespace mobileappbackend1.Controllers
             await _exerciseService.RemoveAsync(id);
             return NoContent();
         }
+    }
+
+    public class UpdateExerciseRequest
+    {
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.MaxLength(200)]
+        public string Name { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
+        public string MuscleGroup { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.MaxLength(1000)]
+        public string? Description { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(200)]
+        public string? Equipment { get; set; }
     }
 }

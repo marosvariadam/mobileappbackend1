@@ -49,7 +49,7 @@ namespace mobileappbackend1.Controllers
         }
 
         /// <summary>Mark all of the caller's notifications as read.</summary>
-        [HttpPatch("read-all")]
+        [HttpPatch("mark-all-read")]
         public async Task<IActionResult> MarkAllAsRead()
         {
             var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;

@@ -14,59 +14,143 @@ namespace mobileappbackend1.Controllers
     {
         private readonly WorkoutService _workoutService;
         private readonly UserService _userService;
+        private readonly NotificationService _notificationService;
 
-        public WorkoutController(WorkoutService workoutService, UserService userService)
+        public WorkoutController(
+            WorkoutService workoutService,
+            UserService userService,
+            NotificationService notificationService)
         {
             _workoutService = workoutService;
             _userService = userService;
+            _notificationService = notificationService;
         }
 
-        // ── Trainer: write a session ──────────────────────────────────────────
+        // ── Response mapping ────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Trainer creates a session and assigns it to one of their athletes.
-        /// AthleteId must belong to an athlete whose TrainerId matches the caller.
-        /// </summary>
+        private static object MapExercise(WorkoutExercise e, int index) => new
+        {
+            exerciseId     = e.ExerciseId,
+            name           = e.Name,
+            index          = index,
+            sets           = e.Sets,
+            targetReps     = e.TargetRepetitions,
+            targetWeightKg = e.TargetWeightKg,
+            instructions   = e.TrainerNotes,
+            equipmentType  = e.EquipmentType,
+            actualSets     = e.ActualSets,
+            actualReps     = e.ActualRepetitions,
+            actualWeightKg = e.ActualWeightKg,
+            exerciseNotes  = e.AthleteNotes
+        };
+
+        private static object MapWorkout(Workout w, User? trainer, User? athlete) => new
+        {
+            id                = w.Id,
+            title             = w.Title,
+            description       = w.TrainerNotes,
+            scheduledDate     = w.ScheduledDate,
+            athleteId         = w.AthleteId,
+            coachId           = w.TrainerId,
+            difficulty        = w.Difficulty.ToString().ToLower(),
+            status            = w.Status.ToString().ToLower(),
+            trainerName       = trainer != null ? $"{trainer.FirstName} {trainer.LastName}" : (string?)null,
+            notes             = w.TrainerNotes,
+            athleteName       = athlete != null ? $"{athlete.FirstName} {athlete.LastName}" : (string?)null,
+            athleteFeedback   = w.AthleteFeedback,
+            estimatedDuration = (string?)null,
+            kcal              = (string?)null,
+            exercises         = w.Exercises.Select((e, i) => MapExercise(e, i)).ToList()
+        };
+
+        private async Task<object> MapWorkoutAsync(Workout w)
+        {
+            var trainer = await _userService.GetByIdAsync(w.TrainerId);
+            var athlete = await _userService.GetByIdAsync(w.AthleteId);
+            return MapWorkout(w, trainer, athlete);
+        }
+
+        private async Task<List<object>> MapWorkoutsAsync(List<Workout> workouts)
+        {
+            var userIds = workouts
+                .SelectMany(w => new[] { w.TrainerId, w.AthleteId })
+                .Distinct()
+                .ToList();
+
+            var users = new Dictionary<string, User>();
+            foreach (var uid in userIds)
+            {
+                var u = await _userService.GetByIdAsync(uid);
+                if (u != null) users[uid] = u;
+            }
+
+            return workouts.Select(w =>
+            {
+                users.TryGetValue(w.TrainerId, out var trainer);
+                users.TryGetValue(w.AthleteId, out var athlete);
+                return MapWorkout(w, trainer, athlete);
+            }).ToList();
+        }
+
+        // ── Trainer: create a session ───────────────────────────────────────────
+
         [HttpPost]
         [Authorize(Roles = "Trainer")]
         public async Task<IActionResult> Create([FromBody] CreateWorkoutRequest request)
         {
             var trainerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
 
-            // Validate that the athlete exists and belongs to this trainer
+            if (string.IsNullOrEmpty(request.AthleteId))
+                return BadRequest(new { message = "AthleteId is required." });
+
             var athlete = await _userService.GetByIdAsync(request.AthleteId);
             if (athlete == null || athlete.Role != UserRole.Athlete)
                 return BadRequest(new { message = "Athlete not found." });
             if (athlete.TrainerId != trainerId)
                 return Forbid();
 
+            if (!Enum.TryParse<DifficultyLevel>(request.Difficulty, true, out var difficulty))
+                return BadRequest(new { message = "Invalid difficulty. Use: easy, moderate, hard, intense." });
+
             var workout = new Workout
             {
                 TrainerId     = trainerId,
                 AthleteId     = request.AthleteId,
                 Title         = request.Title,
-                TrainerNotes  = request.TrainerNotes,
-                Difficulty    = request.Difficulty,
+                TrainerNotes  = request.Notes,
+                Difficulty    = difficulty,
                 ScheduledDate = request.ScheduledDate,
                 Status        = WorkoutStatus.Planned,
                 Exercises     = request.Exercises.Select(e => new WorkoutExercise
                 {
-                    ExerciseId        = e.ExerciseId,
+                    ExerciseId        = e.ExerciseId ?? string.Empty,
                     Name              = e.Name,
                     Sets              = e.Sets,
-                    TargetRepetitions = e.TargetRepetitions,
+                    TargetRepetitions = e.TargetReps,
                     TargetWeightKg    = e.TargetWeightKg,
-                    TrainerNotes      = e.Instructions
+                    TrainerNotes      = e.Instructions,
+                    EquipmentType     = e.EquipmentType
                 }).ToList()
             };
 
             await _workoutService.CreateAsync(workout);
-            return CreatedAtAction(nameof(GetById), new { id = workout.Id }, workout);
+
+            // Notify the athlete
+            var trainer = await _userService.GetByIdAsync(trainerId);
+            var trainerName = trainer != null ? $"{trainer.FirstName} {trainer.LastName}" : "Your trainer";
+            await _notificationService.CreateAndSendAsync(
+                request.AthleteId,
+                NotificationType.WorkoutAssigned,
+                "New Workout Assigned",
+                $"{trainerName} has assigned you a new workout: {workout.Title}",
+                workout.Id);
+
+            var response = MapWorkout(workout, trainer, athlete);
+            return CreatedAtAction(nameof(GetById), new { id = workout.Id }, response);
         }
 
-        /// <summary>
-        /// Trainer edits a session. Only allowed while status is Planned (athlete hasn't started).
-        /// </summary>
+        // ── Trainer: edit a session ─────────────────────────────────────────────
+
         [HttpPut("{id}")]
         [Authorize(Roles = "Trainer")]
         public async Task<IActionResult> Update(string id, [FromBody] CreateWorkoutRequest request)
@@ -81,21 +165,26 @@ namespace mobileappbackend1.Controllers
             if (existing.Status != WorkoutStatus.Planned)
                 return Conflict(new { message = "Cannot edit a session the athlete has already started." });
 
+            if (!Enum.TryParse<DifficultyLevel>(request.Difficulty, true, out var difficulty))
+                return BadRequest(new { message = "Invalid difficulty. Use: easy, moderate, hard, intense." });
+
             var exercises = request.Exercises.Select(e => new WorkoutExercise
             {
-                ExerciseId        = e.ExerciseId,
+                ExerciseId        = e.ExerciseId ?? string.Empty,
                 Name              = e.Name,
                 Sets              = e.Sets,
-                TargetRepetitions = e.TargetRepetitions,
+                TargetRepetitions = e.TargetReps,
                 TargetWeightKg    = e.TargetWeightKg,
-                TrainerNotes      = e.Instructions
+                TrainerNotes      = e.Instructions,
+                EquipmentType     = e.EquipmentType
             }).ToList();
 
             await _workoutService.UpdateAsync(
-                id, request.Title, request.TrainerNotes, request.Difficulty,
+                id, request.Title, request.Notes, difficulty,
                 request.ScheduledDate, exercises);
 
-            return NoContent();
+            var updated = await _workoutService.GetByIdAsync(id);
+            return Ok(await MapWorkoutAsync(updated!));
         }
 
         [HttpDelete("{id}")]
@@ -113,45 +202,40 @@ namespace mobileappbackend1.Controllers
             return NoContent();
         }
 
-        /// <summary>
-        /// Trainer reviews all completed sessions (with athlete feedback).
-        /// Optional ?athleteId= filter to see one athlete's completed sessions.
-        /// </summary>
-        [HttpGet("trainer/review")]
+        // ── Trainer: review completed sessions ──────────────────────────────────
+
+        [HttpGet("trainer/review/{athleteId}")]
         [Authorize(Roles = "Trainer")]
-        public async Task<ActionResult<List<Workout>>> GetTrainerReview(
-            [FromQuery] string? athleteId = null,
+        public async Task<IActionResult> GetTrainerReview(
+            string athleteId,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 20)
         {
             var trainerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
             var workouts = await _workoutService.GetCompletedByTrainerIdAsync(
                 trainerId, athleteId, page, pageSize);
-            return Ok(workouts);
+            return Ok(await MapWorkoutsAsync(workouts));
         }
 
-        /// <summary>
-        /// Trainer sees all sessions they have created (any status).
-        /// </summary>
+        // ── Trainer: all created sessions ───────────────────────────────────────
+
         [HttpGet("trainer/created")]
         [Authorize(Roles = "Trainer")]
-        public async Task<ActionResult<List<Workout>>> GetTrainerHistory(
+        public async Task<IActionResult> GetTrainerHistory(
             [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
         {
             var trainerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (trainerId == null) return Unauthorized();
 
             var workouts = await _workoutService.GetByTrainerIdAsync(trainerId, page, pageSize);
-            return Ok(workouts);
+            return Ok(await MapWorkoutsAsync(workouts));
         }
 
-        /// <summary>
-        /// Trainer calendar: all sessions they created within a date window, for any of their athletes.
-        /// Example: GET /api/workout/trainer/calendar?from=2025-03-01&to=2025-03-31
-        /// </summary>
+        // ── Trainer: calendar ───────────────────────────────────────────────────
+
         [HttpGet("trainer/calendar")]
         [Authorize(Roles = "Trainer")]
-        public async Task<ActionResult<List<Workout>>> GetTrainerCalendar(
+        public async Task<IActionResult> GetTrainerCalendar(
             [FromQuery] DateTime from, [FromQuery] DateTime to)
         {
             if (to < from)
@@ -161,18 +245,14 @@ namespace mobileappbackend1.Controllers
 
             var trainerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
             var workouts = await _workoutService.GetByDateRangeForTrainerAsync(trainerId, from, to);
-            return Ok(workouts);
+            return Ok(await MapWorkoutsAsync(workouts));
         }
 
-        // ── Athlete: calendar and session lifecycle ───────────────────────────
+        // ── Athlete: calendar ───────────────────────────────────────────────────
 
-        /// <summary>
-        /// Athlete gets their sessions for a date window — drives the calendar view.
-        /// Example: GET /api/workout/calendar?from=2025-03-01&to=2025-03-31
-        /// </summary>
-        [HttpGet("calendar")]
+        [HttpGet("my-workouts/calendar")]
         [Authorize(Roles = "Athlete")]
-        public async Task<ActionResult<List<Workout>>> GetCalendar(
+        public async Task<IActionResult> GetCalendar(
             [FromQuery] DateTime from, [FromQuery] DateTime to)
         {
             if (to < from)
@@ -182,27 +262,25 @@ namespace mobileappbackend1.Controllers
 
             var athleteId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
             var workouts = await _workoutService.GetByDateRangeAsync(athleteId, from, to);
-            return Ok(workouts);
+            return Ok(await MapWorkoutsAsync(workouts));
         }
 
-        /// <summary>
-        /// Athlete gets all their sessions (paged), sorted by scheduled date.
-        /// </summary>
+        // ── Athlete: all sessions ───────────────────────────────────────────────
+
         [HttpGet("my-workouts")]
         [Authorize(Roles = "Athlete")]
-        public async Task<ActionResult<List<Workout>>> GetMyWorkouts(
+        public async Task<IActionResult> GetMyWorkouts(
             [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
         {
             var athleteId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (athleteId == null) return Unauthorized();
 
             var workouts = await _workoutService.GetByAthleteIdAsync(athleteId, page, pageSize);
-            return Ok(workouts);
+            return Ok(await MapWorkoutsAsync(workouts));
         }
 
-        /// <summary>
-        /// Athlete starts a session: Planned → InProgress. Records StartedAt.
-        /// </summary>
+        // ── Athlete: start session ──────────────────────────────────────────────
+
         [HttpPatch("{id}/start")]
         [Authorize(Roles = "Athlete")]
         public async Task<IActionResult> Start(string id)
@@ -218,19 +296,19 @@ namespace mobileappbackend1.Controllers
                 return Conflict(new { message = "Session has already been started or completed." });
 
             await _workoutService.StartAsync(id);
-            return NoContent();
+
+            var updated = await _workoutService.GetByIdAsync(id);
+            return Ok(await MapWorkoutAsync(updated!));
         }
 
-        /// <summary>
-        /// Athlete logs actual results for one exercise by its index in the list.
-        /// The session must be InProgress.
-        /// </summary>
-        [HttpPatch("{id}/exercises/{exerciseIndex:int}")]
+        // ── Athlete: log exercise ───────────────────────────────────────────────
+
+        [HttpPatch("{workoutId}/exercise/{index:int}")]
         [Authorize(Roles = "Athlete")]
         public async Task<IActionResult> LogExercise(
-            string id, int exerciseIndex, [FromBody] LogExerciseRequest request)
+            string workoutId, int index, [FromBody] LogExerciseRequest request)
         {
-            var existing = await _workoutService.GetByIdAsync(id);
+            var existing = await _workoutService.GetByIdAsync(workoutId);
             if (existing == null) return NotFound();
 
             var athleteId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -240,21 +318,19 @@ namespace mobileappbackend1.Controllers
             if (existing.Status != WorkoutStatus.InProgress)
                 return Conflict(new { message = "Session must be in progress to log exercises." });
 
-            if (exerciseIndex < 0 || exerciseIndex >= existing.Exercises.Count)
+            if (index < 0 || index >= existing.Exercises.Count)
                 return BadRequest(new { message = $"Exercise index must be between 0 and {existing.Exercises.Count - 1}." });
 
             await _workoutService.LogExerciseAsync(
-                id, exerciseIndex,
-                request.ActualSets, request.ActualRepetitions,
-                request.ActualWeightKg, request.AthleteNotes);
+                workoutId, index,
+                request.ActualSets, request.ActualReps,
+                request.ActualWeightKg, request.ExerciseNotes);
 
             return NoContent();
         }
 
-        /// <summary>
-        /// Athlete submits the completed session with optional overall feedback for the trainer.
-        /// Transitions InProgress → Completed. Records CompletedAt.
-        /// </summary>
+        // ── Athlete: complete session ───────────────────────────────────────────
+
         [HttpPatch("{id}/complete")]
         [Authorize(Roles = "Athlete")]
         public async Task<IActionResult> Complete(
@@ -270,14 +346,16 @@ namespace mobileappbackend1.Controllers
             if (existing.Status != WorkoutStatus.InProgress)
                 return Conflict(new { message = "Session must be in progress to submit." });
 
-            await _workoutService.CompleteWithFeedbackAsync(id, request.AthleteFeedback);
-            return NoContent();
+            await _workoutService.CompleteWithFeedbackAsync(id, request.Feedback);
+
+            var updated = await _workoutService.GetByIdAsync(id);
+            return Ok(await MapWorkoutAsync(updated!));
         }
 
-        // ── Shared ───────────────────────────────────────────────────────────
+        // ── Shared: get by id ───────────────────────────────────────────────────
 
         [HttpGet("{id}")]
-        public async Task<ActionResult<Workout>> GetById(string id)
+        public async Task<IActionResult> GetById(string id)
         {
             var workout = await _workoutService.GetByIdAsync(id);
             if (workout == null) return NotFound();
@@ -288,35 +366,26 @@ namespace mobileappbackend1.Controllers
             if (!isTrainer && workout.AthleteId != currentUserId)
                 return Forbid();
 
-            return Ok(workout);
+            return Ok(await MapWorkoutAsync(workout));
         }
     }
 
     // ── Request DTOs ──────────────────────────────────────────────────────────
 
-    /// <summary>Trainer uses this to create or update a session.</summary>
     public class CreateWorkoutRequest
     {
-        /// <summary>Short session title, e.g. "Upper Body Strength".</summary>
         [Required] [MaxLength(300)]
         public string Title { get; set; } = string.Empty;
 
-        /// <summary>
-        /// Free-text description / motivational note visible to the athlete before they start.
-        /// E.g. "Focus on controlled negatives today. Rest 2 min between sets."
-        /// </summary>
-        [MaxLength(2000)]
-        public string? TrainerNotes { get; set; }
+        public string? AthleteId { get; set; }
 
-        /// <summary>How demanding this session is intended to be.</summary>
-        public DifficultyLevel Difficulty { get; set; } = DifficultyLevel.Moderate;
-
-        [Required]
-        public string AthleteId { get; set; } = string.Empty;
-
-        /// <summary>The date this session should appear on in both calendars.</summary>
         [Required]
         public DateTime ScheduledDate { get; set; }
+
+        public string Difficulty { get; set; } = "moderate";
+
+        [MaxLength(2000)]
+        public string? Notes { get; set; }
 
         [Required]
         public List<CreateWorkoutExerciseItem> Exercises { get; set; } = new();
@@ -324,33 +393,40 @@ namespace mobileappbackend1.Controllers
 
     public class CreateWorkoutExerciseItem
     {
-        /// <summary>Id from the exercise catalogue (built-in or trainer's own custom exercise).</summary>
-        [Required] public string ExerciseId { get; set; } = string.Empty;
+        public string? ExerciseId { get; set; }
 
-        /// <summary>Display name — populated from the catalogue on the client side.</summary>
-        [Required] [MaxLength(200)] public string Name { get; set; } = string.Empty;
+        [Required] [MaxLength(200)]
+        public string Name { get; set; } = string.Empty;
 
-        [Range(1, 100)] public int Sets { get; set; }
-        [Range(1, 10000)] public int TargetRepetitions { get; set; }
-        [Range(0, 10000)] public double TargetWeightKg { get; set; }
+        public int Index { get; set; }
 
-        /// <summary>Per-exercise instructions, e.g. "Keep elbows tucked. Pause at bottom."</summary>
-        [MaxLength(1000)] public string? Instructions { get; set; }
+        [Range(1, 100)]
+        public int Sets { get; set; }
+
+        [Range(1, 10000)]
+        public int TargetReps { get; set; }
+
+        [Range(0, 10000)]
+        public double TargetWeightKg { get; set; }
+
+        [MaxLength(1000)]
+        public string? Instructions { get; set; }
+
+        [MaxLength(200)]
+        public string? EquipmentType { get; set; }
     }
 
-    /// <summary>Athlete logs actual results for one exercise.</summary>
     public class LogExerciseRequest
     {
         [Range(1, 100)] public int ActualSets { get; set; }
-        [Range(1, 10000)] public int ActualRepetitions { get; set; }
+        [Range(1, 10000)] public int ActualReps { get; set; }
         [Range(0, 10000)] public double ActualWeightKg { get; set; }
-        [MaxLength(1000)] public string? AthleteNotes { get; set; }
+        [MaxLength(1000)] public string? ExerciseNotes { get; set; }
     }
 
-    /// <summary>Athlete submits the completed session with optional feedback for the trainer.</summary>
     public class CompleteWorkoutRequest
     {
         [MaxLength(2000)]
-        public string? AthleteFeedback { get; set; }
+        public string? Feedback { get; set; }
     }
 }

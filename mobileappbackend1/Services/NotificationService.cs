@@ -8,9 +8,9 @@ namespace mobileappbackend1.Services
     public class NotificationService
     {
         private readonly IMongoCollection<Notification> _notifications;
-        private readonly IHubContext<ChatHub> _hub;
+        private readonly IHubContext<NotificationHub> _hub;
 
-        public NotificationService(IMongoDatabase database, IHubContext<ChatHub> hub)
+        public NotificationService(IMongoDatabase database, IHubContext<NotificationHub> hub)
         {
             _notifications = database.GetCollection<Notification>("Notifications");
             _hub = hub;
@@ -39,8 +39,8 @@ namespace mobileappbackend1.Services
 
             await _notifications.InsertOneAsync(notification);
 
-            // Push real-time — fires-and-forgets gracefully if the user is offline
-            await _hub.Clients.User(userId).SendAsync("Notification", notification);
+            // Push real-time via the dedicated notifications hub
+            await _hub.Clients.User(userId).SendAsync("NotificationReceived", notification);
 
             return notification;
         }

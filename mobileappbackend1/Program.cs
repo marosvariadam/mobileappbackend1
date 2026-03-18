@@ -154,7 +154,8 @@ internal class Program
                     var path        = context.HttpContext.Request.Path;
 
                     if (!string.IsNullOrEmpty(accessToken) &&
-                        path.StartsWithSegments("/hubs/chat"))
+                        (path.StartsWithSegments("/hubs/chat") ||
+                         path.StartsWithSegments("/hubs/notifications")))
                     {
                         context.Token = accessToken;
                     }
@@ -258,6 +259,7 @@ internal class Program
         app.MapHealthChecks("/health");
         app.MapControllers();
         app.MapHub<ChatHub>("/hubs/chat");
+        app.MapHub<NotificationHub>("/hubs/notifications");
 
         app.Run();
     }

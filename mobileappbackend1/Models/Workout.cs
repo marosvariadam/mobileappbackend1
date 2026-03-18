@@ -73,6 +73,9 @@ namespace mobileappbackend1.Models
         [MaxLength(1000)]
         public string? TrainerNotes { get; set; }
 
+        [MaxLength(200)]
+        public string? EquipmentType { get; set; }
+
         // ── Logged by athlete ──────────────────────────────────────────
         public int? ActualSets { get; set; }
         public int? ActualRepetitions { get; set; }

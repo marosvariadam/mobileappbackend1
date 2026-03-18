@@ -23,23 +23,30 @@ namespace mobileappbackend1.Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequest request)
         {
-            var user = await _userService.ValidateUserAsync(request.Email, request.Password);
-            if (user == null)
-                return Unauthorized(new { message = "Invalid email or password." });
-
-            var accessToken = _tokenService.GenerateToken(user);
-            var refreshToken = _tokenService.GenerateRefreshToken();
-            var refreshTokenHash = _tokenService.HashRefreshToken(refreshToken);
-
-            await _userService.StoreRefreshTokenAsync(user.Id!, refreshTokenHash, DateTime.UtcNow.AddDays(30));
-
-            return Ok(new
+            try
             {
-                Token = accessToken,
-                RefreshToken = refreshToken,
-                UserId = user.Id,
-                Role = user.Role.ToString()
-            });
+                var user = await _userService.ValidateUserAsync(request.Email, request.Password);
+                if (user == null)
+                    return Unauthorized(new { message = "Hibás email vagy jelszó." });
+
+                var accessToken = _tokenService.GenerateToken(user);
+                var refreshToken = _tokenService.GenerateRefreshToken();
+                var refreshTokenHash = _tokenService.HashRefreshToken(refreshToken);
+
+                await _userService.StoreRefreshTokenAsync(user.Id!, refreshTokenHash, DateTime.UtcNow.AddDays(30));
+
+                return Ok(new
+                {
+                    token = accessToken,
+                    refreshToken = refreshToken,
+                    userId = user.Id,
+                    role = user.Role.ToString()
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = $"Szerverhiba a bejelentkezés során: {ex.Message}" });
+            }
         }
 
         [HttpPost("refresh")]

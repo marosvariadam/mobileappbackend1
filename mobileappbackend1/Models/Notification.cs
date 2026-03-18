@@ -9,7 +9,8 @@ namespace mobileappbackend1.Models
         TrainerRequestAccepted,  // athlete receives this when trainer accepts
         TrainerRequestRejected,  // athlete receives this when trainer rejects
         OnboardingFormAvailable, // athlete receives this when accepted and a form exists
-        OnboardingFormSubmitted  // trainer receives this when athlete completes the survey
+        OnboardingFormSubmitted, // trainer receives this when athlete completes the survey
+        WorkoutAssigned          // athlete receives this when trainer assigns a new workout
     }
 
     public class Notification

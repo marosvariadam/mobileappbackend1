@@ -9,372 +9,218 @@ namespace mobileappbackend1.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize]
     public class UserController : ControllerBase
     {
-        private readonly UserService           _userService;
-        private readonly TrainerRequestService _requestService;
+        private readonly UserService _userService;
+        private readonly TrainerRequestService _trainerRequestService;
 
-        public UserController(UserService userService, TrainerRequestService requestService)
+        public UserController(UserService userService, TrainerRequestService trainerRequestService)
         {
-            _userService    = userService;
-            _requestService = requestService;
+            _userService = userService;
+            _trainerRequestService = trainerRequestService;
         }
 
-        // ── Trainer: view their roster ────────────────────────────────────────
+        // ── Register ────────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Returns the trainer's own athlete roster, sorted alphabetically, paged.
-        /// A trainer cannot see athletes belonging to another trainer.
-        /// </summary>
-        [HttpGet]
-        [Authorize(Roles = "Trainer")]
-        public async Task<ActionResult<List<User>>> GetRoster(
-            [FromQuery] int page = 1, [FromQuery] int pageSize = 50)
-        {
-            var trainerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
-            var athletes = await _userService.GetAthletesByTrainerIdAsync(trainerId, page, pageSize);
-            return Ok(athletes);
-        }
-
-        /// <summary>Alias for GET /api/user — kept for client backward compatibility.</summary>
-        [HttpGet("my-athletes")]
-        [Authorize(Roles = "Trainer")]
-        public async Task<ActionResult<List<User>>> GetMyAthletes(
-            [FromQuery] int page = 1, [FromQuery] int pageSize = 50)
-        {
-            var trainerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
-            var athletes = await _userService.GetAthletesByTrainerIdAsync(trainerId, page, pageSize);
-            return Ok(athletes);
-        }
-
-        /// <summary>
-        /// Get a user profile.
-        /// - Trainers can view their own profile and any of their athletes' profiles.
-        /// - Athletes can only view their own profile.
-        /// </summary>
-        [HttpGet("{id}")]
-        public async Task<ActionResult<User>> Get(string id)
-        {
-            var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            var user = await _userService.GetByIdAsync(id);
-            if (user == null) return NotFound();
-
-            if (User.IsInRole("Trainer"))
-            {
-                // Trainer may only see themselves or their own athletes
-                if (user.Id != currentUserId && user.TrainerId != currentUserId)
-                    return Forbid();
-            }
-            else
-            {
-                // Athletes may only see their own profile
-                if (currentUserId != id)
-                    return Forbid();
-            }
-
-            return Ok(user);
-        }
-
-        // ── Trainer registration (public) ─────────────────────────────────────
-
-        /// <summary>
-        /// Public self-registration for trainers only.
-        /// Athletes are created by their trainer — they cannot self-register.
-        /// </summary>
         [HttpPost("register")]
-        [AllowAnonymous]
-        public async Task<IActionResult> Register([FromBody] RegisterTrainerRequest request)
+        public async Task<IActionResult> Register([FromBody] RegisterRequest request)
         {
             try
             {
-                var trainer = new User
+                if (!Enum.TryParse<UserRole>(request.Role, true, out var role))
+                    return BadRequest(new { message = "A role mező értéke 'Trainer' vagy 'Athlete' lehet." });
+
+                var user = new User
                 {
-                    FirstName = request.FirstName,
-                    LastName  = request.LastName,
-                    Email     = request.Email,
-                    Role      = UserRole.Trainer   // always Trainer — never accepted from client
+                    FirstName = request.FirstName.Trim(),
+                    LastName = request.LastName.Trim(),
+                    Email = request.Email.Trim().ToLowerInvariant(),
+                    Role = role
                 };
 
-                await _userService.CreateAsync(trainer, request.Password);
-                return CreatedAtAction(nameof(Get), new { id = trainer.Id }, trainer);
-            }
-            catch (InvalidOperationException ex)
-            {
-                return Conflict(new { message = ex.Message });
-            }
-        }
+                await _userService.CreateAsync(user, request.Password);
 
-        // ── Athlete self-registration ─────────────────────────────────────────
-
-        /// <summary>
-        /// Public self-registration for athletes.
-        ///
-        /// Optionally supply the trainer's email address to automatically send them
-        /// a join request. The trainer still needs to accept before the athlete
-        /// appears in their roster.
-        ///
-        /// An optional introductory note (sport background, goals, availability, etc.)
-        /// is attached to the join request and shown to the trainer.
-        /// </summary>
-        [HttpPost("register-athlete")]
-        [AllowAnonymous]
-        public async Task<IActionResult> RegisterAthlete([FromBody] RegisterAthleteRequest request)
-        {
-            try
-            {
-                var athlete = new User
+                // If athlete provided a trainer email, auto-send a join request
+                if (role == UserRole.Athlete && !string.IsNullOrWhiteSpace(request.TrainerEmail))
                 {
-                    FirstName = request.FirstName,
-                    LastName  = request.LastName,
-                    Email     = request.Email,
-                    Role      = UserRole.Athlete   // always Athlete — never accepted from client
-                };
-
-                await _userService.CreateAsync(athlete, request.Password);
-
-                // If a trainer email was supplied, automatically send a join request
-                if (!string.IsNullOrWhiteSpace(request.TrainerEmail))
-                {
-                    var trainer = await _userService.GetByEmailAsync(request.TrainerEmail);
-                    if (trainer?.Role == UserRole.Trainer)
+                    var trainer = await _userService.GetByEmailAsync(request.TrainerEmail.Trim().ToLowerInvariant());
+                    if (trainer != null && trainer.Role == UserRole.Trainer)
                     {
                         try
                         {
-                            await _requestService.CreateAsync(
-                                athlete.Id!, trainer.Id!, request.Note);
+                            await _trainerRequestService.CreateAsync(
+                                user.Id!, trainer.Id!, request.IntroNote);
                         }
-                        catch
+                        catch (InvalidOperationException)
                         {
-                            // Non-fatal: account was created successfully even if the
-                            // join request fails (e.g. trainer not found, duplicate).
+                            // Duplicate request — safe to ignore during registration
                         }
                     }
                 }
 
-                return CreatedAtAction(nameof(Get), new { id = athlete.Id }, athlete);
+                return Ok(new { message = "Sikeres regisztráció." });
             }
-            catch (InvalidOperationException ex)
+            catch (InvalidOperationException ex) when (ex.Message.Contains("Email is already in use"))
             {
-                return Conflict(new { message = ex.Message });
+                return Conflict(new { message = "Ez az email cím már használatban van." });
             }
         }
 
-        // ── Trainer: manage athletes ──────────────────────────────────────────
+        // ── Get user by id ──────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Trainer creates an athlete account and automatically links it to themselves.
-        /// The trainer sets the athlete's initial password.
-        /// The athlete should change it after first login via POST /api/user/change-password.
-        /// </summary>
-        [HttpPost("athletes")]
-        [Authorize(Roles = "Trainer")]
-        public async Task<IActionResult> AddAthlete([FromBody] AddAthleteRequest request)
+        [HttpGet("{id}")]
+        [Authorize]
+        public async Task<IActionResult> GetUser(string id)
         {
-            var trainerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
-            try
-            {
-                var athlete = new User
-                {
-                    FirstName = request.FirstName,
-                    LastName  = request.LastName,
-                    Email     = request.Email,
-                    Role      = UserRole.Athlete,  // always Athlete — never accepted from client
-                    TrainerId = trainerId          // auto-assigned from JWT
-                };
+            var user = await _userService.GetByIdAsync(id);
+            if (user == null)
+                return NotFound(new { message = "Felhasználó nem található." });
 
-                await _userService.CreateAsync(athlete, request.Password);
-                return CreatedAtAction(nameof(Get), new { id = athlete.Id }, athlete);
-            }
-            catch (InvalidOperationException ex)
+            return Ok(new
             {
-                return Conflict(new { message = ex.Message });
-            }
+                id = user.Id,
+                firstName = user.FirstName,
+                lastName = user.LastName,
+                email = user.Email,
+                role = user.Role.ToString()
+            });
         }
 
-        /// <summary>
-        /// Trainer updates one of their athlete's name or email.
-        /// </summary>
-        [HttpPut("athletes/{id}")]
-        [Authorize(Roles = "Trainer")]
-        public async Task<IActionResult> UpdateAthlete(string id, [FromBody] UpdateProfileRequest request)
-        {
-            var trainerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            var athlete   = await _userService.GetByIdAsync(id);
-            if (athlete == null) return NotFound();
+        // ── Update user profile ─────────────────────────────────────────────────
 
-            // Ensure the athlete belongs to this trainer
-            if (athlete.Role != UserRole.Athlete || athlete.TrainerId != trainerId)
+        [HttpPut("{id}")]
+        [Authorize]
+        public async Task<IActionResult> UpdateUser(string id, [FromBody] UpdateUserRequest request)
+        {
+            var callerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (callerId != id)
                 return Forbid();
 
-            // TrainerId is preserved — trainers cannot reassign an athlete to someone else here
-            await _userService.UpdateAsync(id, request.FirstName, request.LastName, request.Email, trainerId);
-            return NoContent();
+            var existing = await _userService.GetByIdAsync(id);
+            if (existing == null)
+                return NotFound(new { message = "Felhasználó nem található." });
+
+            await _userService.UpdateAsync(
+                id,
+                request.FirstName?.Trim() ?? existing.FirstName,
+                request.LastName?.Trim() ?? existing.LastName,
+                request.Email?.Trim().ToLowerInvariant() ?? existing.Email,
+                existing.TrainerId);
+
+            var updated = await _userService.GetByIdAsync(id);
+            return Ok(new
+            {
+                id = updated!.Id,
+                firstName = updated.FirstName,
+                lastName = updated.LastName,
+                email = updated.Email,
+                role = updated.Role.ToString()
+            });
         }
 
-        /// <summary>
-        /// Trainer resets an athlete's password without needing the old one.
-        /// The athlete's active refresh token is revoked so they must log in again.
-        /// </summary>
-        [HttpPost("athletes/{id}/reset-password")]
-        [Authorize(Roles = "Trainer")]
-        public async Task<IActionResult> ResetAthletePassword(
-            string id, [FromBody] ResetPasswordRequest request)
+        // ── Delete user ─────────────────────────────────────────────────────────
+
+        [HttpDelete("{id}")]
+        [Authorize]
+        public async Task<IActionResult> DeleteUser(string id)
         {
-            var trainerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            var athlete   = await _userService.GetByIdAsync(id);
-            if (athlete == null) return NotFound();
-
-            if (athlete.Role != UserRole.Athlete || athlete.TrainerId != trainerId)
-                return Forbid();
-
-            await _userService.SetPasswordAsync(id, request.NewPassword);
-            await _userService.RevokeRefreshTokenAsync(id);
-            return NoContent();
-        }
-
-        /// <summary>
-        /// Trainer removes an athlete from their roster (deletes the athlete's account).
-        /// </summary>
-        [HttpDelete("athletes/{id}")]
-        [Authorize(Roles = "Trainer")]
-        public async Task<IActionResult> RemoveAthlete(string id)
-        {
-            var trainerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            var athlete   = await _userService.GetByIdAsync(id);
-            if (athlete == null) return NotFound();
-
-            if (athlete.Role != UserRole.Athlete || athlete.TrainerId != trainerId)
+            var callerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (callerId != id)
                 return Forbid();
 
             await _userService.RemoveAsync(id);
             return NoContent();
         }
 
-        // ── Self-service (any authenticated user) ─────────────────────────────
+        // ── Get trainer's athletes ──────────────────────────────────────────────
 
-        /// <summary>
-        /// User updates their own name or email.
-        /// TrainerId is never changeable through this endpoint — only a trainer
-        /// can link an athlete to themselves.
-        /// </summary>
-        [HttpPut("{id}")]
-        public async Task<IActionResult> Update(string id, [FromBody] UpdateProfileRequest request)
+        [HttpGet("trainer/{trainerId}/athletes")]
+        [Authorize]
+        public async Task<IActionResult> GetAthletes(
+            string trainerId, [FromQuery] int page = 1, [FromQuery] int pageSize = 50)
         {
-            var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (currentUserId != id) return Forbid();
+            var athletes = await _userService.GetAthletesByTrainerIdAsync(trainerId, page, pageSize);
 
-            var user = await _userService.GetByIdAsync(id);
-            if (user == null) return NotFound();
-
-            // Preserve the existing TrainerId — the user cannot reassign themselves
-            await _userService.UpdateAsync(id, request.FirstName, request.LastName, request.Email, user.TrainerId);
-            return NoContent();
+            return Ok(athletes.Select(a => new
+            {
+                id = a.Id,
+                firstName = a.FirstName,
+                lastName = a.LastName,
+                email = a.Email
+            }));
         }
 
-        /// <summary>
-        /// User changes their own password.
-        /// Requires the current password for verification.
-        /// Revokes all active refresh tokens on success.
-        /// </summary>
+        // ── Change password ─────────────────────────────────────────────────────
+
         [HttpPost("change-password")]
+        [Authorize]
         public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
         {
-            var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (userId == null)
+                return Unauthorized();
 
             var success = await _userService.ChangePasswordAsync(
-                currentUserId, request.CurrentPassword, request.NewPassword);
+                userId, request.CurrentPassword, request.NewPassword);
 
             if (!success)
-                return BadRequest(new { message = "Current password is incorrect." });
+                return BadRequest(new { message = "A jelenlegi jelszó helytelen." });
 
-            await _userService.RevokeRefreshTokenAsync(currentUserId);
-            return NoContent();
-        }
-
-        /// <summary>
-        /// User deletes their own account.
-        /// Trainers use DELETE /api/user/athletes/{id} to remove an athlete.
-        /// </summary>
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> Delete(string id)
-        {
-            var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (currentUserId != id) return Forbid();
-
-            var user = await _userService.GetByIdAsync(id);
-            if (user == null) return NotFound();
-
-            await _userService.RemoveAsync(id);
-            return NoContent();
+            return Ok(new { message = "Jelszó sikeresen megváltoztatva." });
         }
     }
 
-    // ── Request DTOs ──────────────────────────────────────────────────────────
+    // ── Request DTOs ────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Athlete self-registration.
-    /// Role is always Athlete server-side.
-    /// TrainerEmail is optional — if supplied a join request is auto-created.
-    /// </summary>
-    public class RegisterAthleteRequest
+    public class RegisterRequest
     {
-        [Required] [MaxLength(100)] public string FirstName { get; set; } = string.Empty;
-        [Required] [MaxLength(100)] public string LastName  { get; set; } = string.Empty;
-        [Required] [EmailAddress]  [MaxLength(256)] public string Email    { get; set; } = string.Empty;
-        [Required] [MinLength(8)]  public string Password   { get; set; } = string.Empty;
+        [Required]
+        [MaxLength(100)]
+        public string FirstName { get; set; } = string.Empty;
 
-        /// <summary>If provided, a join request is automatically sent to this trainer.</summary>
-        [EmailAddress] public string? TrainerEmail { get; set; }
+        [Required]
+        [MaxLength(100)]
+        public string LastName { get; set; } = string.Empty;
 
-        /// <summary>
-        /// Optional intro to the trainer: sport history, goals, injuries, availability, etc.
-        /// Shown to the trainer alongside the join request.
-        /// </summary>
-        [MaxLength(500)] public string? Note { get; set; }
+        [Required]
+        [EmailAddress]
+        [MaxLength(256)]
+        public string Email { get; set; } = string.Empty;
+
+        [Required]
+        [MinLength(6)]
+        public string Password { get; set; } = string.Empty;
+
+        [Required]
+        public string Role { get; set; } = string.Empty;
+
+        [EmailAddress]
+        public string? TrainerEmail { get; set; }
+
+        [MaxLength(500)]
+        public string? IntroNote { get; set; }
     }
 
-    /// <summary>Trainer self-registration. Role is always set server-side to Trainer.</summary>
-    public class RegisterTrainerRequest
+    public class UpdateUserRequest
     {
-        [Required] [MaxLength(100)] public string FirstName { get; set; } = string.Empty;
-        [Required] [MaxLength(100)] public string LastName  { get; set; } = string.Empty;
-        [Required] [EmailAddress]  [MaxLength(256)] public string Email { get; set; } = string.Empty;
-        [Required] [MinLength(8)]  public string Password   { get; set; } = string.Empty;
+        [MaxLength(100)]
+        public string? FirstName { get; set; }
+
+        [MaxLength(100)]
+        public string? LastName { get; set; }
+
+        [EmailAddress]
+        [MaxLength(256)]
+        public string? Email { get; set; }
     }
 
-    /// <summary>
-    /// Trainer creates an athlete account.
-    /// Role is always Athlete and TrainerId is taken from the trainer's JWT — neither
-    /// field is accepted from the client body.
-    /// </summary>
-    public class AddAthleteRequest
-    {
-        [Required] [MaxLength(100)] public string FirstName { get; set; } = string.Empty;
-        [Required] [MaxLength(100)] public string LastName  { get; set; } = string.Empty;
-        [Required] [EmailAddress]  [MaxLength(256)] public string Email { get; set; } = string.Empty;
-        /// <summary>Initial password — athlete should change this after first login.</summary>
-        [Required] [MinLength(8)]  public string Password   { get; set; } = string.Empty;
-    }
-
-    /// <summary>Update name or email. Used for both self-updates and trainer-updates-athlete.</summary>
-    public class UpdateProfileRequest
-    {
-        [Required] [MaxLength(100)] public string FirstName { get; set; } = string.Empty;
-        [Required] [MaxLength(100)] public string LastName  { get; set; } = string.Empty;
-        [Required] [EmailAddress]  [MaxLength(256)] public string Email { get; set; } = string.Empty;
-    }
-
-    /// <summary>Trainer resets an athlete's password (no old password required).</summary>
-    public class ResetPasswordRequest
-    {
-        [Required] [MinLength(8)] public string NewPassword { get; set; } = string.Empty;
-    }
-
-    /// <summary>User changes their own password (old password required for verification).</summary>
     public class ChangePasswordRequest
     {
-        [Required]                public string CurrentPassword { get; set; } = string.Empty;
-        [Required] [MinLength(8)] public string NewPassword     { get; set; } = string.Empty;
+        [Required]
+        public string CurrentPassword { get; set; } = string.Empty;
+
+        [Required]
+        [MinLength(6)]
+        public string NewPassword { get; set; } = string.Empty;
     }
 }

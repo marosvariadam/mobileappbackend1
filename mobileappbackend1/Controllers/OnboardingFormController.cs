@@ -8,7 +8,7 @@ using mobileappbackend1.Services;
 namespace mobileappbackend1.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("api/onboarding-form")]
     [Authorize]
     public class OnboardingFormController : ControllerBase
     {
@@ -28,17 +28,6 @@ namespace mobileappbackend1.Controllers
 
         // ── Trainer: manage their intake form ─────────────────────────────────
 
-        /// <summary>
-        /// Create or replace the trainer's intake form.
-        /// Each trainer has exactly one active form; submitting again overwrites it.
-        ///
-        /// Typical questions:
-        ///   - "Describe your sport history and experience level." (Text)
-        ///   - "Have you had any injuries in the past 2 years?" (Text)
-        ///   - "What is your primary goal?" (MultipleChoice: Weight loss / Muscle gain / Performance / General fitness)
-        ///   - "How would you rate your current fitness level?" (Scale, 1–10)
-        ///   - "How many days per week can you train?" (MultipleChoice: 2 / 3 / 4 / 5+)
-        /// </summary>
         [HttpPut]
         [Authorize(Roles = "Trainer")]
         public async Task<ActionResult<OnboardingForm>> Upsert(
@@ -50,7 +39,6 @@ namespace mobileappbackend1.Controllers
             return Ok(form);
         }
 
-        /// <summary>Trainer retrieves their own intake form.</summary>
         [HttpGet("mine")]
         [Authorize(Roles = "Trainer")]
         public async Task<ActionResult<OnboardingForm>> GetMine()
@@ -62,22 +50,40 @@ namespace mobileappbackend1.Controllers
             return Ok(form);
         }
 
-        /// <summary>Trainer views all submitted athlete responses.</summary>
         [HttpGet("responses")]
         [Authorize(Roles = "Trainer")]
-        public async Task<ActionResult<List<OnboardingResponse>>> GetAllResponses()
+        public async Task<IActionResult> GetAllResponses()
         {
             var trainerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
-            return Ok(await _formService.GetAllResponsesForTrainerAsync(trainerId));
+            var responses = await _formService.GetAllResponsesForTrainerAsync(trainerId);
+
+            // Enrich with athlete names
+            var athleteIds = responses.Select(r => r.AthleteId).Distinct().ToList();
+            var athletes = new Dictionary<string, User>();
+            foreach (var aid in athleteIds)
+            {
+                var a = await _userService.GetByIdAsync(aid);
+                if (a != null) athletes[aid] = a;
+            }
+
+            var mapped = responses.Select(r =>
+            {
+                athletes.TryGetValue(r.AthleteId, out var athlete);
+                return new
+                {
+                    athleteId   = r.AthleteId,
+                    athleteName = athlete != null ? $"{athlete.FirstName} {athlete.LastName}" : (string?)null,
+                    answers     = r.Answers,
+                    submittedAt = r.SubmittedAt
+                };
+            });
+
+            return Ok(mapped);
         }
 
-        /// <summary>
-        /// Trainer views a specific athlete's onboarding response.
-        /// Verifies the athlete belongs to this trainer.
-        /// </summary>
         [HttpGet("responses/{athleteId}")]
         [Authorize(Roles = "Trainer")]
-        public async Task<ActionResult<OnboardingResponse>> GetAthleteResponse(string athleteId)
+        public async Task<IActionResult> GetAthleteResponse(string athleteId)
         {
             var trainerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
 
@@ -88,16 +94,18 @@ namespace mobileappbackend1.Controllers
             if (response == null)
                 return NotFound(new { message = "Athlete has not submitted a response yet." });
 
-            return Ok(response);
+            return Ok(new
+            {
+                athleteId   = response.AthleteId,
+                athleteName = $"{athlete.FirstName} {athlete.LastName}",
+                answers     = response.Answers,
+                submittedAt = response.SubmittedAt
+            });
         }
 
         // ── Athlete: fill in the form ─────────────────────────────────────────
 
-        /// <summary>
-        /// Athlete retrieves their trainer's intake form.
-        /// The athlete must be linked to a trainer first (via an accepted join request).
-        /// </summary>
-        [HttpGet("my-form")]
+        [HttpGet("my-trainer-form")]
         [Authorize(Roles = "Athlete")]
         public async Task<ActionResult<OnboardingForm>> GetMyForm()
         {
@@ -114,14 +122,9 @@ namespace mobileappbackend1.Controllers
             return Ok(form);
         }
 
-        /// <summary>
-        /// Athlete submits their answers.
-        /// Re-submitting updates the existing response.
-        /// The trainer is notified in real-time on submission.
-        /// </summary>
         [HttpPost("submit")]
         [Authorize(Roles = "Athlete")]
-        public async Task<ActionResult<OnboardingResponse>> Submit(
+        public async Task<IActionResult> Submit(
             [FromBody] SubmitOnboardingResponseRequest request)
         {
             var athleteId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
@@ -130,12 +133,24 @@ namespace mobileappbackend1.Controllers
             if (string.IsNullOrEmpty(athlete?.TrainerId))
                 return BadRequest(new { message = "You are not linked to a trainer." });
 
-            var form = await _formService.GetByIdAsync(request.FormId);
-            if (form == null || form.TrainerId != athlete.TrainerId)
-                return NotFound(new { message = "Intake form not found." });
+            // Auto-detect formId from the athlete's trainer if not provided
+            var formId = request.FormId;
+            if (string.IsNullOrWhiteSpace(formId))
+            {
+                var trainerForm = await _formService.GetByTrainerIdAsync(athlete.TrainerId);
+                if (trainerForm == null)
+                    return NotFound(new { message = "Intake form not found." });
+                formId = trainerForm.Id!;
+            }
+            else
+            {
+                var form = await _formService.GetByIdAsync(formId);
+                if (form == null || form.TrainerId != athlete.TrainerId)
+                    return NotFound(new { message = "Intake form not found." });
+            }
 
             var response = await _formService.SubmitResponseAsync(
-                athleteId, athlete.TrainerId, request.FormId, request.Answers);
+                athleteId, athlete.TrainerId, formId, request.Answers);
 
             // Notify the trainer
             await _notificationService.CreateAndSendAsync(
@@ -148,10 +163,9 @@ namespace mobileappbackend1.Controllers
             return Ok(response);
         }
 
-        /// <summary>Athlete retrieves their own previously submitted response.</summary>
         [HttpGet("my-response")]
         [Authorize(Roles = "Athlete")]
-        public async Task<ActionResult<OnboardingResponse>> GetMyResponse()
+        public async Task<IActionResult> GetMyResponse()
         {
             var athleteId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
             var athlete   = await _userService.GetByIdAsync(athleteId);
@@ -183,8 +197,7 @@ namespace mobileappbackend1.Controllers
 
     public class SubmitOnboardingResponseRequest
     {
-        [Required]
-        public string FormId { get; set; } = string.Empty;
+        public string? FormId { get; set; }
 
         [Required]
         public List<AnswerEntry> Answers { get; set; } = new();

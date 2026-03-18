@@ -45,6 +45,17 @@ namespace mobileappbackend1.Services
             await _exercises.InsertOneAsync(newExercise);
         }
 
+        public async Task UpdateAsync(string id, string name, string muscleGroup, string? description, string? equipment)
+        {
+            var update = Builders<Exercise>.Update
+                .Set(e => e.Name, name)
+                .Set(e => e.MuscleGroup, muscleGroup)
+                .Set(e => e.Description, description ?? string.Empty)
+                .Set(e => e.Equipment, equipment ?? string.Empty);
+
+            await _exercises.UpdateOneAsync(e => e.Id == id, update);
+        }
+
         public async Task RemoveAsync(string id)
         {
             await _exercises.DeleteOneAsync(e => e.Id == id);

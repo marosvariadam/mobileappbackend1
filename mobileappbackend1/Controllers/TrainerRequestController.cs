@@ -8,7 +8,7 @@ using mobileappbackend1.Services;
 namespace mobileappbackend1.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("api/trainer-request")]
     [Authorize]
     public class TrainerRequestController : ControllerBase
     {
@@ -23,13 +23,60 @@ namespace mobileappbackend1.Controllers
             _userService    = userService;
         }
 
+        // ── Helper: enrich a TrainerRequest with names/emails ───────────────────
+
+        private async Task<object> MapRequest(TrainerRequest r)
+        {
+            var athlete = await _userService.GetByIdAsync(r.AthleteId);
+            var trainer = await _userService.GetByIdAsync(r.TrainerId);
+
+            return new
+            {
+                id           = r.Id,
+                athleteId    = r.AthleteId,
+                athleteName  = athlete != null ? $"{athlete.FirstName} {athlete.LastName}" : (string?)null,
+                athleteEmail = athlete?.Email,
+                trainerEmail = trainer?.Email,
+                status       = r.Status.ToString(),
+                note         = r.AthleteNote,
+                createdAt    = r.RequestedAt
+            };
+        }
+
+        private async Task<List<object>> MapRequests(List<TrainerRequest> requests)
+        {
+            var userIds = requests
+                .SelectMany(r => new[] { r.AthleteId, r.TrainerId })
+                .Distinct()
+                .ToList();
+
+            var users = new Dictionary<string, User>();
+            foreach (var uid in userIds)
+            {
+                var u = await _userService.GetByIdAsync(uid);
+                if (u != null) users[uid] = u;
+            }
+
+            return requests.Select(r =>
+            {
+                users.TryGetValue(r.AthleteId, out var athlete);
+                users.TryGetValue(r.TrainerId, out var trainer);
+                return (object)new
+                {
+                    id           = r.Id,
+                    athleteId    = r.AthleteId,
+                    athleteName  = athlete != null ? $"{athlete.FirstName} {athlete.LastName}" : (string?)null,
+                    athleteEmail = athlete?.Email,
+                    trainerEmail = trainer?.Email,
+                    status       = r.Status.ToString(),
+                    note         = r.AthleteNote,
+                    createdAt    = r.RequestedAt
+                };
+            }).ToList();
+        }
+
         // ── Athlete ───────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Athlete sends a join request to a trainer identified by email address.
-        /// An optional note can be included (e.g. goals, experience summary).
-        /// A real-time notification is pushed to the trainer immediately.
-        /// </summary>
         [HttpPost]
         [Authorize(Roles = "Athlete")]
         public async Task<IActionResult> SendRequest([FromBody] SendTrainerRequestRequest request)
@@ -40,7 +87,6 @@ namespace mobileappbackend1.Controllers
             if (trainer == null || trainer.Role != UserRole.Trainer)
                 return NotFound(new { message = "No trainer found with that email address." });
 
-            // Prevent sending a request to a trainer they're already linked to
             var athlete = await _userService.GetByIdAsync(athleteId);
             if (athlete?.TrainerId == trainer.Id)
                 return Conflict(new { message = "You are already linked to this trainer." });
@@ -48,7 +94,8 @@ namespace mobileappbackend1.Controllers
             try
             {
                 var result = await _requestService.CreateAsync(athleteId, trainer.Id!, request.Note);
-                return CreatedAtAction(nameof(GetMyRequests), null, result);
+                var mapped = await MapRequest(result);
+                return CreatedAtAction(nameof(GetMyRequests), null, mapped);
             }
             catch (InvalidOperationException ex)
             {
@@ -56,35 +103,26 @@ namespace mobileappbackend1.Controllers
             }
         }
 
-        /// <summary>
-        /// Athlete views all of their own join requests (any status).
-        /// </summary>
         [HttpGet("mine")]
         [Authorize(Roles = "Athlete")]
-        public async Task<ActionResult<List<TrainerRequest>>> GetMyRequests()
+        public async Task<IActionResult> GetMyRequests()
         {
             var athleteId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
-            return Ok(await _requestService.GetByAthleteIdAsync(athleteId));
+            var requests = await _requestService.GetByAthleteIdAsync(athleteId);
+            return Ok(await MapRequests(requests));
         }
 
         // ── Trainer ───────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Trainer views all pending join requests, sorted oldest-first.
-        /// </summary>
         [HttpGet("pending")]
         [Authorize(Roles = "Trainer")]
-        public async Task<ActionResult<List<TrainerRequest>>> GetPending()
+        public async Task<IActionResult> GetPending()
         {
             var trainerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
-            return Ok(await _requestService.GetPendingByTrainerIdAsync(trainerId));
+            var requests = await _requestService.GetPendingByTrainerIdAsync(trainerId);
+            return Ok(await MapRequests(requests));
         }
 
-        /// <summary>
-        /// Trainer accepts a join request.
-        /// The athlete is immediately linked to the trainer's roster.
-        /// The athlete is notified and, if a form exists, prompted to fill it in.
-        /// </summary>
         [HttpPatch("{id}/accept")]
         [Authorize(Roles = "Trainer")]
         public async Task<IActionResult> Accept(string id)
@@ -100,9 +138,6 @@ namespace mobileappbackend1.Controllers
             catch (InvalidOperationException ex) { return Conflict(new { message = ex.Message }); }
         }
 
-        /// <summary>
-        /// Trainer rejects a join request. The athlete is notified.
-        /// </summary>
         [HttpPatch("{id}/reject")]
         [Authorize(Roles = "Trainer")]
         public async Task<IActionResult> Reject(string id)
@@ -121,14 +156,10 @@ namespace mobileappbackend1.Controllers
 
     public class SendTrainerRequestRequest
     {
-        /// <summary>The trainer's registered email address.</summary>
         [Required]
         [EmailAddress]
         public string TrainerEmail { get; set; } = string.Empty;
 
-        /// <summary>
-        /// Optional message to the trainer — e.g. goals, sport background, availability.
-        /// </summary>
         [MaxLength(500)]
         public string? Note { get; set; }
     }
