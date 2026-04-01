@@ -101,13 +101,20 @@ namespace mobileappbackend1.Controllers
             if (existing == null)
                 return NotFound(new { message = "Felhasználó nem található." });
 
-            await _userService.UpdateAsync(
-                id,
-                request.FirstName?.Trim() ?? existing.FirstName,
-                request.LastName?.Trim() ?? existing.LastName,
-                request.Email?.Trim().ToLowerInvariant() ?? existing.Email,
-                existing.TrainerId,
-                request.WeightKg);
+            try
+            {
+                await _userService.UpdateAsync(
+                    id,
+                    request.FirstName?.Trim() ?? existing.FirstName,
+                    request.LastName?.Trim() ?? existing.LastName,
+                    request.Email?.Trim().ToLowerInvariant() ?? existing.Email,
+                    existing.TrainerId,
+                    request.WeightKg);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("Email is already in use"))
+            {
+                return Conflict(new { message = "Ez az email cím már használatban van." });
+            }
 
             var updated = await _userService.GetByIdAsync(id);
             return Ok(new
@@ -142,6 +149,10 @@ namespace mobileappbackend1.Controllers
         public async Task<IActionResult> GetAthletes(
             string trainerId, [FromQuery] int page = 1, [FromQuery] int pageSize = 50)
         {
+            var callerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (callerId != trainerId)
+                return Forbid();
+
             var athletes = await _userService.GetAthletesByTrainerIdAsync(trainerId, page, pageSize);
 
             return Ok(athletes.Select(a => new

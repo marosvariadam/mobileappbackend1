@@ -43,9 +43,9 @@ namespace mobileappbackend1.Controllers
                     role = user.Role.ToString()
                 });
             }
-            catch (Exception ex)
+            catch
             {
-                return StatusCode(500, new { message = $"Szerverhiba a bejelentkezés során: {ex.Message}" });
+                return StatusCode(500, new { message = "Szerverhiba a bejelentkezés során." });
             }
         }
 
