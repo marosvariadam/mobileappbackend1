@@ -36,6 +36,8 @@ namespace mobileappbackend1.Models
         [BsonRepresentation(BsonType.ObjectId)]
         public string? TrainerId { get; set; }
 
+        public double? WeightKg { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         // Refresh token support (stored as SHA-256 hash)
