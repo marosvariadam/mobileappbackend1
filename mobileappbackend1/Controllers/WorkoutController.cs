@@ -112,6 +112,9 @@ namespace mobileappbackend1.Controllers
             if (!Enum.TryParse<DifficultyLevel>(request.Difficulty, true, out var difficulty))
                 return BadRequest(new { message = "Invalid difficulty. Use: easy, moderate, hard, intense." });
 
+            if (request.Exercises.Count == 0)
+                return BadRequest(new { message = "At least one exercise is required." });
+
             var workout = new Workout
             {
                 TrainerId     = trainerId,
@@ -123,7 +126,7 @@ namespace mobileappbackend1.Controllers
                 Status        = WorkoutStatus.Planned,
                 Exercises     = request.Exercises.Select(e => new WorkoutExercise
                 {
-                    ExerciseId        = e.ExerciseId ?? string.Empty,
+                    ExerciseId        = string.IsNullOrEmpty(e.ExerciseId) ? null : e.ExerciseId,
                     Name              = e.Name,
                     Sets              = e.Sets,
                     TargetRepetitions = e.TargetReps,
@@ -133,7 +136,14 @@ namespace mobileappbackend1.Controllers
                 }).ToList()
             };
 
-            await _workoutService.CreateAsync(workout);
+            try
+            {
+                await _workoutService.CreateAsync(workout);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Failed to create workout.", detail = ex.Message });
+            }
 
             // Notify the athlete
             var trainer = await _userService.GetByIdAsync(trainerId);
@@ -170,7 +180,7 @@ namespace mobileappbackend1.Controllers
 
             var exercises = request.Exercises.Select(e => new WorkoutExercise
             {
-                ExerciseId        = e.ExerciseId ?? string.Empty,
+                ExerciseId        = string.IsNullOrEmpty(e.ExerciseId) ? null : e.ExerciseId,
                 Name              = e.Name,
                 Sets              = e.Sets,
                 TargetRepetitions = e.TargetReps,
@@ -403,7 +413,7 @@ namespace mobileappbackend1.Controllers
         [Range(1, 100)]
         public int Sets { get; set; }
 
-        [Range(1, 10000)]
+        [Range(0, 10000)]
         public int TargetReps { get; set; }
 
         [Range(0, 10000)]

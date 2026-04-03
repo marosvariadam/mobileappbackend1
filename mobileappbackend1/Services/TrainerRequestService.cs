@@ -38,6 +38,31 @@ namespace mobileappbackend1.Services
                 throw new InvalidOperationException(
                     "You already have a pending request to this trainer.");
 
+            // Limit total pending requests per athlete
+            const int maxPendingRequests = 3;
+            var pendingCount = await _requests.CountDocumentsAsync(r =>
+                r.AthleteId == athleteId &&
+                r.Status    == TrainerRequestStatus.Pending);
+
+            if (pendingCount >= maxPendingRequests)
+                throw new InvalidOperationException(
+                    $"You can have at most {maxPendingRequests} pending requests at a time.");
+
+            // Cooldown: 7 days after rejection before re-requesting the same trainer
+            var cooldownDays = 7;
+            var recentRejection = await _requests.Find(r =>
+                r.AthleteId == athleteId &&
+                r.TrainerId == trainerId &&
+                r.Status    == TrainerRequestStatus.Rejected &&
+                r.RespondedAt > DateTime.UtcNow.AddDays(-cooldownDays)).FirstOrDefaultAsync();
+
+            if (recentRejection != null)
+            {
+                var retryAfter = recentRejection.RespondedAt!.Value.AddDays(cooldownDays);
+                throw new InvalidOperationException(
+                    $"This trainer declined your request recently. You can try again after {retryAfter:yyyy-MM-dd}.");
+            }
+
             var request = new TrainerRequest
             {
                 AthleteId   = athleteId,
@@ -71,11 +96,15 @@ namespace mobileappbackend1.Services
                 .ToListAsync();
         }
 
-        public async Task<List<TrainerRequest>> GetByAthleteIdAsync(string athleteId)
+        public async Task<List<TrainerRequest>> GetByAthleteIdAsync(
+            string athleteId, int page = 1, int pageSize = 20)
         {
+            pageSize = Math.Clamp(pageSize, 1, 100);
             return await _requests
                 .Find(r => r.AthleteId == athleteId)
                 .SortByDescending(r => r.RequestedAt)
+                .Skip((page - 1) * pageSize)
+                .Limit(pageSize)
                 .ToListAsync();
         }
 
@@ -90,6 +119,12 @@ namespace mobileappbackend1.Services
         public async Task AcceptAsync(string requestId, string trainerId)
         {
             var request = await GetAndValidate(requestId, trainerId);
+
+            // Guard: athlete may have been accepted by another trainer in the meantime
+            var athlete = await _userService.GetByIdAsync(request.AthleteId);
+            if (athlete?.TrainerId != null)
+                throw new InvalidOperationException(
+                    "This athlete is already linked to a trainer.");
 
             // 1. Link athlete to trainer
             await _userService.SetTrainerIdAsync(request.AthleteId, trainerId);
@@ -149,6 +184,23 @@ namespace mobileappbackend1.Services
                 "Request Declined",
                 $"{trainerName} was unable to take you on at this time.",
                 requestId);
+        }
+
+        /// <summary>
+        /// Athlete cancels their own pending request.
+        /// </summary>
+        public async Task CancelAsync(string requestId, string athleteId)
+        {
+            var request = await _requests.Find(r => r.Id == requestId).FirstOrDefaultAsync()
+                ?? throw new KeyNotFoundException("Request not found.");
+
+            if (request.AthleteId != athleteId)
+                throw new UnauthorizedAccessException();
+
+            if (request.Status != TrainerRequestStatus.Pending)
+                throw new InvalidOperationException("Only pending requests can be cancelled.");
+
+            await _requests.DeleteOneAsync(r => r.Id == requestId);
         }
 
         // ── Private helpers ───────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -34,6 +35,7 @@ internal class Program
 
         // ── Application services ──────────────────────────────────────────────
 
+        builder.Services.AddSingleton<PresenceTracker>();
         builder.Services.AddScoped<UserService>();
         builder.Services.AddScoped<WorkoutService>();
         builder.Services.AddScoped<ExerciseService>();
@@ -84,7 +86,11 @@ internal class Program
 
         // ── Controllers & Swagger ─────────────────────────────────────────────
 
-        builder.Services.AddControllers();
+        builder.Services.AddControllers()
+            .AddJsonOptions(o =>
+            {
+                o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+            });
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen(c =>
         {
@@ -200,7 +206,7 @@ internal class Program
             messages.Indexes.CreateOne(new CreateIndexModel<Message>(
                 Builders<Message>.IndexKeys
                     .Ascending(m => m.ConversationId)
-                    .Descending(m => m.SentAt)));
+                    .Descending(m => m.CreatedAt)));
 
             // Fast unread-count queries (used in aggregation + MarkAsRead)
             messages.Indexes.CreateOne(new CreateIndexModel<Message>(

@@ -2,6 +2,8 @@ using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
+using mobileappbackend1.Hubs;
 using mobileappbackend1.Models;
 using mobileappbackend1.Services;
 
@@ -14,11 +16,16 @@ namespace mobileappbackend1.Controllers
     {
         private readonly MessageService _messageService;
         private readonly UserService _userService;
+        private readonly IHubContext<ChatHub> _chatHub;
 
-        public MessageController(MessageService messageService, UserService userService)
+        public MessageController(
+            MessageService messageService,
+            UserService userService,
+            IHubContext<ChatHub> chatHub)
         {
             _messageService = messageService;
             _userService    = userService;
+            _chatHub        = chatHub;
         }
 
         // ── GET conversations ─────────────────────────────────────────────────
@@ -70,6 +77,16 @@ namespace mobileappbackend1.Controllers
             return Ok(messages);
         }
 
+        // ── GET total unread count ──────────────────────────────────────────
+
+        [HttpGet("unread-count")]
+        public async Task<IActionResult> GetUnreadCount()
+        {
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+            var count = await _messageService.GetTotalUnreadCountAsync(userId);
+            return Ok(new { unreadCount = count });
+        }
+
         // ── POST send ─────────────────────────────────────────────────────────
 
         [HttpPost("{recipientId}")]
@@ -86,6 +103,10 @@ namespace mobileappbackend1.Controllers
                 return Forbid();
 
             var message = await _messageService.SendAsync(senderId, recipientId, request.Content);
+
+            // Push to recipient via SignalR (sender already gets the message in the HTTP response)
+            await _chatHub.Clients.User(recipientId).SendAsync("ReceiveMessage", message);
+
             return CreatedAtAction(nameof(GetHistory), new { otherId = recipientId }, message);
         }
 
@@ -96,6 +117,36 @@ namespace mobileappbackend1.Controllers
         {
             var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
             await _messageService.MarkConversationAsReadAsync(userId, otherId);
+
+            var conversationId = MessageService.BuildConversationId(userId, otherId);
+
+            // Push real-time read receipt to the other user
+            await _chatHub.Clients.User(otherId).SendAsync("MessagesRead", new
+            {
+                conversationId,
+                readByUserId = userId
+            });
+
+            return NoContent();
+        }
+
+        // ── DELETE message ──────────────────────────────────────────────────
+
+        [HttpDelete("{messageId}")]
+        public async Task<IActionResult> DeleteMessage(string messageId)
+        {
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+            var message = await _messageService.DeleteMessageAsync(messageId, userId);
+
+            if (message == null)
+                return NotFound(new { message = "Message not found or you are not the sender." });
+
+            var payload = new { conversationId = message.ConversationId, messageId };
+
+            // Notify both participants
+            await _chatHub.Clients.User(message.RecipientId).SendAsync("MessageDeleted", payload);
+            await _chatHub.Clients.User(userId).SendAsync("MessageDeleted", payload);
+
             return NoContent();
         }
     }

@@ -25,8 +25,11 @@ namespace mobileappbackend1.Models
         /// <summary>Max 2 000 characters, enforced at the service and DTO layers.</summary>
         public string Content { get; set; } = string.Empty;
 
-        public DateTime SentAt { get; set; } = DateTime.UtcNow;
+        [BsonElement("SentAt")]
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public bool IsRead { get; set; } = false;
+
+        public bool IsDeleted { get; set; } = false;
     }
 }

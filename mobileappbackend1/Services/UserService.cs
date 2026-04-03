@@ -74,6 +74,15 @@ namespace mobileappbackend1.Services
             await _users.UpdateOneAsync(u => u.Id == athleteId, update);
         }
 
+        /// <summary>
+        /// Removes the trainer link from an athlete.
+        /// </summary>
+        public async Task ClearTrainerIdAsync(string athleteId)
+        {
+            var update = Builders<User>.Update.Set(u => u.TrainerId, (string?)null);
+            await _users.UpdateOneAsync(u => u.Id == athleteId, update);
+        }
+
         public async Task<User?> ValidateUserAsync(string email, string password)
         {
             var user = await GetByEmailAsync(email);

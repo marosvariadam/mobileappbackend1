@@ -52,9 +52,8 @@ namespace mobileappbackend1.Models
 
     public class WorkoutExercise
     {
-        [Required]
         [BsonRepresentation(BsonType.ObjectId)]
-        public string ExerciseId { get; set; } = string.Empty;
+        public string? ExerciseId { get; set; }
 
         [Required]
         [MaxLength(200)]
@@ -64,7 +63,7 @@ namespace mobileappbackend1.Models
         [Range(1, 100)]
         public int Sets { get; set; }
 
-        [Range(1, 10000)]
+        [Range(0, 10000)]
         public int TargetRepetitions { get; set; }
 
         [Range(0, 10000)]
