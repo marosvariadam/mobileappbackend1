@@ -48,13 +48,21 @@ namespace mobileappbackend1.Services
         }
 
         // Partial update — only non-sensitive fields; password changes go through ChangePasswordAsync
-        public async Task UpdateAsync(string id, string firstName, string lastName, string email, string? trainerId)
+        public async Task UpdateAsync(string id, string firstName, string lastName, string email, string? trainerId, double? weightKg = null)
         {
+            // Check email uniqueness if it is being changed
+            var existing = await _users.Find(u => u.Email == email && u.Id != id).FirstOrDefaultAsync();
+            if (existing != null)
+                throw new InvalidOperationException("Email is already in use.");
+
             var update = Builders<User>.Update
                 .Set(u => u.FirstName, firstName)
                 .Set(u => u.LastName, lastName)
                 .Set(u => u.Email, email)
                 .Set(u => u.TrainerId, trainerId);
+
+            if (weightKg.HasValue)
+                update = update.Set(u => u.WeightKg, weightKg.Value);
 
             await _users.UpdateOneAsync(u => u.Id == id, update);
         }
@@ -114,7 +122,10 @@ namespace mobileappbackend1.Services
             if (!BCrypt.Net.BCrypt.Verify(currentPassword, user.PasswordHash)) return false;
 
             var newHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
-            var update = Builders<User>.Update.Set(u => u.PasswordHash, newHash);
+            var update = Builders<User>.Update
+                .Set(u => u.PasswordHash, newHash)
+                .Unset(u => u.RefreshTokenHash)
+                .Unset(u => u.RefreshTokenExpiry);
             await _users.UpdateOneAsync(u => u.Id == userId, update);
             return true;
         }

@@ -82,7 +82,8 @@ namespace mobileappbackend1.Controllers
                 firstName = user.FirstName,
                 lastName = user.LastName,
                 email = user.Email,
-                role = user.Role.ToString()
+                role = user.Role.ToString(),
+                weightKg = user.WeightKg
             });
         }
 
@@ -100,12 +101,20 @@ namespace mobileappbackend1.Controllers
             if (existing == null)
                 return NotFound(new { message = "Felhasználó nem található." });
 
-            await _userService.UpdateAsync(
-                id,
-                request.FirstName?.Trim() ?? existing.FirstName,
-                request.LastName?.Trim() ?? existing.LastName,
-                request.Email?.Trim().ToLowerInvariant() ?? existing.Email,
-                existing.TrainerId);
+            try
+            {
+                await _userService.UpdateAsync(
+                    id,
+                    request.FirstName?.Trim() ?? existing.FirstName,
+                    request.LastName?.Trim() ?? existing.LastName,
+                    request.Email?.Trim().ToLowerInvariant() ?? existing.Email,
+                    existing.TrainerId,
+                    request.WeightKg);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("Email is already in use"))
+            {
+                return Conflict(new { message = "Ez az email cím már használatban van." });
+            }
 
             var updated = await _userService.GetByIdAsync(id);
             return Ok(new
@@ -114,7 +123,8 @@ namespace mobileappbackend1.Controllers
                 firstName = updated.FirstName,
                 lastName = updated.LastName,
                 email = updated.Email,
-                role = updated.Role.ToString()
+                role = updated.Role.ToString(),
+                weightKg = updated.WeightKg
             });
         }
 
@@ -249,6 +259,9 @@ namespace mobileappbackend1.Controllers
         [EmailAddress]
         [MaxLength(256)]
         public string? Email { get; set; }
+
+        [Range(0, 500)]
+        public double? WeightKg { get; set; }
     }
 
     public class ChangePasswordRequest

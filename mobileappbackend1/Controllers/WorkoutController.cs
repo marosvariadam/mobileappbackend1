@@ -53,7 +53,7 @@ namespace mobileappbackend1.Controllers
             athleteId         = w.AthleteId,
             coachId           = w.TrainerId,
             difficulty        = w.Difficulty.ToString().ToLower(),
-            status            = w.Status.ToString().ToLower(),
+            status            = w.Status == WorkoutStatus.InProgress ? "inProgress" : w.Status.ToString().ToLower(),
             trainerName       = trainer != null ? $"{trainer.FirstName} {trainer.LastName}" : (string?)null,
             notes             = w.TrainerNotes,
             athleteName       = athlete != null ? $"{athlete.FirstName} {athlete.LastName}" : (string?)null,
