@@ -36,6 +36,8 @@ namespace mobileappbackend1.Controllers
                 athleteId    = r.AthleteId,
                 athleteName  = athlete != null ? $"{athlete.FirstName} {athlete.LastName}" : (string?)null,
                 athleteEmail = athlete?.Email,
+                trainerId    = r.TrainerId,
+                trainerName  = trainer != null ? $"{trainer.FirstName} {trainer.LastName}" : (string?)null,
                 trainerEmail = trainer?.Email,
                 status       = r.Status.ToString(),
                 note         = r.AthleteNote,
@@ -67,6 +69,8 @@ namespace mobileappbackend1.Controllers
                     athleteId    = r.AthleteId,
                     athleteName  = athlete != null ? $"{athlete.FirstName} {athlete.LastName}" : (string?)null,
                     athleteEmail = athlete?.Email,
+                    trainerId    = r.TrainerId,
+                    trainerName  = trainer != null ? $"{trainer.FirstName} {trainer.LastName}" : (string?)null,
                     trainerEmail = trainer?.Email,
                     status       = r.Status.ToString(),
                     note         = r.AthleteNote,
@@ -105,11 +109,27 @@ namespace mobileappbackend1.Controllers
 
         [HttpGet("mine")]
         [Authorize(Roles = "Athlete")]
-        public async Task<IActionResult> GetMyRequests()
+        public async Task<IActionResult> GetMyRequests(
+            [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
         {
             var athleteId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
-            var requests = await _requestService.GetByAthleteIdAsync(athleteId);
+            var requests = await _requestService.GetByAthleteIdAsync(athleteId, page, pageSize);
             return Ok(await MapRequests(requests));
+        }
+
+        [HttpDelete("{id}")]
+        [Authorize(Roles = "Athlete")]
+        public async Task<IActionResult> Cancel(string id)
+        {
+            var athleteId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+            try
+            {
+                await _requestService.CancelAsync(id, athleteId);
+                return NoContent();
+            }
+            catch (KeyNotFoundException)         { return NotFound(); }
+            catch (UnauthorizedAccessException)  { return Forbid(); }
+            catch (InvalidOperationException ex) { return Conflict(new { message = ex.Message }); }
         }
 
         // ── Trainer ───────────────────────────────────────────────────────────

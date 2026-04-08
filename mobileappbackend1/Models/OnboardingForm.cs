@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 
@@ -43,6 +44,7 @@ namespace mobileappbackend1.Models
     public class OnboardingQuestion
     {
         /// <summary>Stable identifier used to match answers back to questions.</summary>
+        [JsonPropertyName("id")]
         public string QuestionId { get; set; } = Guid.NewGuid().ToString();
 
         [Required]

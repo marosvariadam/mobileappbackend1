@@ -145,7 +145,7 @@ namespace mobileappbackend1.Controllers
         // ── Get trainer's athletes ──────────────────────────────────────────────
 
         [HttpGet("trainer/{trainerId}/athletes")]
-        [Authorize]
+        [Authorize(Roles = "Trainer")]
         public async Task<IActionResult> GetAthletes(
             string trainerId, [FromQuery] int page = 1, [FromQuery] int pageSize = 50)
         {
@@ -162,6 +162,39 @@ namespace mobileappbackend1.Controllers
                 lastName = a.LastName,
                 email = a.Email
             }));
+        }
+
+        // ── Leave trainer (athlete) ────────────────────────────────────────────
+
+        [HttpPost("leave-trainer")]
+        [Authorize(Roles = "Athlete")]
+        public async Task<IActionResult> LeaveTrainer()
+        {
+            var athleteId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+            var athlete = await _userService.GetByIdAsync(athleteId);
+            if (athlete?.TrainerId == null)
+                return Conflict(new { message = "You are not linked to any trainer." });
+
+            await _userService.ClearTrainerIdAsync(athleteId);
+            return NoContent();
+        }
+
+        // ── Remove athlete (trainer) ──────────────────────────────────────────
+
+        [HttpPost("remove-athlete/{athleteId}")]
+        [Authorize(Roles = "Trainer")]
+        public async Task<IActionResult> RemoveAthlete(string athleteId)
+        {
+            var trainerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+            var athlete = await _userService.GetByIdAsync(athleteId);
+
+            if (athlete == null)
+                return NotFound(new { message = "Athlete not found." });
+            if (athlete.TrainerId != trainerId)
+                return Forbid();
+
+            await _userService.ClearTrainerIdAsync(athleteId);
+            return NoContent();
         }
 
         // ── Change password ─────────────────────────────────────────────────────

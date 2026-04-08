@@ -8,79 +8,144 @@ namespace mobileappbackend1.Hubs
     /// Real-time messaging hub.
     ///
     /// Connection: wss://host/hubs/chat?access_token={jwt}
-    ///   — The JWT is read from the "access_token" query parameter because
-    ///     browsers cannot set custom headers on WebSocket upgrades.
-    ///   — JWT validation is identical to the REST endpoints (same key/issuer/audience).
-    ///
-    /// User identity: SignalR maps ClaimTypes.NameIdentifier → Context.UserIdentifier
-    ///   automatically, so Clients.User(id) targets all connections of one user.
     ///
     /// Client methods pushed by the server:
-    ///   "ReceiveMessage" (Message)  — a new message arrived for you
-    ///   "MessageSent"   (Message)  — echo to the sender's other connections (multi-tab sync)
+    ///   "ReceiveMessage"   (Message)                    — a new message arrived
+    ///   "MessageDeleted"   ({ conversationId, messageId }) — a message was deleted
+    ///   "MessagesRead"     ({ conversationId, readByUserId }) — messages were marked as read
+    ///   "UserTyping"       ({ userId })                 — other user started typing
+    ///   "UserStoppedTyping"({ userId })                 — other user stopped typing
+    ///   "UserOnline"       ({ userId })                 — a user came online
+    ///   "UserOffline"      ({ userId })                 — a user went offline
     /// </summary>
     [Authorize]
     public class ChatHub : Hub
     {
         private readonly MessageService _messageService;
+        private readonly PresenceTracker _presenceTracker;
 
-        public ChatHub(MessageService messageService)
+        public ChatHub(MessageService messageService, PresenceTracker presenceTracker)
         {
             _messageService = messageService;
+            _presenceTracker = presenceTracker;
         }
 
-        /// <summary>
-        /// Called by the client to send a message.
-        ///
-        /// Validations (throws HubException on failure — surfaces as a rejection to the caller):
-        ///   1. No self-messaging.
-        ///   2. Content is non-empty and ≤ 2 000 characters.
-        ///   3. Caller and recipient have a direct trainer-athlete relationship.
-        /// </summary>
+        // ── Messaging ───────────────────────────────────────────────────────
+
         public async Task SendMessage(string recipientId, string content)
         {
             var senderId = Context.UserIdentifier!;
 
-            // 1. No self-messaging
             if (senderId == recipientId)
                 throw new HubException("You cannot send a message to yourself.");
 
-            // 2. Content validation
             content = content?.Trim() ?? string.Empty;
             if (content.Length == 0)
                 throw new HubException("Message cannot be empty.");
             if (content.Length > 2000)
                 throw new HubException("Message cannot exceed 2 000 characters.");
 
-            // 3. Relationship check — only trainer-athlete pairs may message each other
             if (!await _messageService.IsRelationshipValidAsync(senderId, recipientId))
                 throw new HubException("You can only message your assigned trainer or athletes.");
 
-            // Persist to MongoDB
             var message = await _messageService.SendAsync(senderId, recipientId, content);
 
-            // Push to every active connection of the recipient
             await Clients.User(recipientId).SendAsync("ReceiveMessage", message);
-
-            // Echo to every OTHER connection of the sender (multi-tab / multi-device sync).
-            // The calling connection displays the message optimistically; only other tabs need updating.
             await Clients.OthersInGroup($"user_{senderId}").SendAsync("ReceiveMessage", message);
         }
 
-        // ── Connection lifecycle ──────────────────────────────────────────────
+        // ── Typing indicators ───────────────────────────────────────────────
+
+        public async Task StartTyping(string recipientId)
+        {
+            var senderId = Context.UserIdentifier!;
+            if (senderId == recipientId) return;
+
+            await Clients.User(recipientId).SendAsync("UserTyping", new { userId = senderId });
+        }
+
+        public async Task StopTyping(string recipientId)
+        {
+            var senderId = Context.UserIdentifier!;
+            if (senderId == recipientId) return;
+
+            await Clients.User(recipientId).SendAsync("UserStoppedTyping", new { userId = senderId });
+        }
+
+        // ── Read receipts ───────────────────────────────────────────────────
+
+        public async Task MarkAsRead(string otherId)
+        {
+            var userId = Context.UserIdentifier!;
+            if (userId == otherId) return;
+
+            await _messageService.MarkConversationAsReadAsync(userId, otherId);
+
+            var conversationId = MessageService.BuildConversationId(userId, otherId);
+
+            // Notify the other user that their messages were read
+            await Clients.User(otherId).SendAsync("MessagesRead", new
+            {
+                conversationId,
+                readByUserId = userId
+            });
+        }
+
+        // ── Message deletion ────────────────────────────────────────────────
+
+        public async Task DeleteMessage(string messageId)
+        {
+            var userId = Context.UserIdentifier!;
+
+            var message = await _messageService.DeleteMessageAsync(messageId, userId);
+            if (message == null)
+                throw new HubException("Message not found or you are not the sender.");
+
+            var payload = new { conversationId = message.ConversationId, messageId };
+
+            // Notify recipient
+            await Clients.User(message.RecipientId).SendAsync("MessageDeleted", payload);
+            // Notify sender's other connections
+            await Clients.OthersInGroup($"user_{userId}").SendAsync("MessageDeleted", payload);
+        }
+
+        // ── Presence / connection lifecycle ─────────────────────────────────
 
         public override async Task OnConnectedAsync()
         {
-            // Add the connection to a per-user group so we can target "other connections
-            // of the same user" without overriding the built-in user provider.
-            await Groups.AddToGroupAsync(Context.ConnectionId, $"user_{Context.UserIdentifier}");
+            var userId = Context.UserIdentifier!;
+            await Groups.AddToGroupAsync(Context.ConnectionId, $"user_{userId}");
+
+            var isFirstConnection = _presenceTracker.UserConnected(userId, Context.ConnectionId);
+            if (isFirstConnection)
+            {
+                // Broadcast to all OTHER authenticated users that this user came online
+                await Clients.Others.SendAsync("UserOnline", new { userId });
+            }
+
             await base.OnConnectedAsync();
         }
 
         public override async Task OnDisconnectedAsync(Exception? exception)
         {
-            await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"user_{Context.UserIdentifier}");
+            var userId = Context.UserIdentifier!;
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"user_{userId}");
+
+            var isLastConnection = _presenceTracker.UserDisconnected(userId, Context.ConnectionId);
+            if (isLastConnection)
+            {
+                await Clients.Others.SendAsync("UserOffline", new { userId });
+            }
+
             await base.OnDisconnectedAsync(exception);
+        }
+
+        /// <summary>
+        /// Called by the client after connecting to get the list of currently online users.
+        /// </summary>
+        public List<string> GetOnlineUsers()
+        {
+            return _presenceTracker.GetOnlineUsers();
         }
     }
 }
