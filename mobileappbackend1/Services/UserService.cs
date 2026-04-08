@@ -130,6 +130,17 @@ namespace mobileappbackend1.Services
             return true;
         }
 
+        /// <summary>
+        /// Returns every athlete in the system. Used exclusively by the background ML retraining
+        /// service to iterate over all athletes and refresh their prediction models.
+        /// </summary>
+        public async Task<List<User>> GetAllAthletesAsync()
+        {
+            return await _users
+                .Find(u => u.Role == UserRole.Athlete)
+                .ToListAsync();
+        }
+
         public async Task StoreRefreshTokenAsync(string userId, string tokenHash, DateTime expiry)
         {
             var update = Builders<User>.Update

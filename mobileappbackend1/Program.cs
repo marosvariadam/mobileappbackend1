@@ -4,9 +4,11 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using MongoDB.Driver;
+using mobileappbackend1.BackgroundServices;
 using mobileappbackend1.Hubs;
 using mobileappbackend1.Models;
 using mobileappbackend1.Services;
+using mobileappbackend1.Services.ML;
 using mobileappbackend1.Settings;
 
 internal class Program
@@ -44,6 +46,13 @@ internal class Program
         builder.Services.AddScoped<NotificationService>();
         builder.Services.AddScoped<OnboardingFormService>();
         builder.Services.AddScoped<TrainerRequestService>();
+
+        // ── ML services ───────────────────────────────────────────────────────
+
+        builder.Services.AddSingleton<SyntheticDataService>();
+        builder.Services.AddSingleton<ProgressPredictionService>();
+        builder.Services.AddScoped<FeatureEngineeringService>();
+        builder.Services.AddHostedService<ModelRetrainBackgroundService>();
 
         // ── CORS ──────────────────────────────────────────────────────────────
         //
@@ -172,6 +181,9 @@ internal class Program
         });
 
         // ── Build ─────────────────────────────────────────────────────────────
+
+        // Ensure the ML model store directory exists before any service tries to write to it
+        Directory.CreateDirectory(ProgressPredictionService.ModelStorePath);
 
         var app = builder.Build();
 

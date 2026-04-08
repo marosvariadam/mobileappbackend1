@@ -60,5 +60,21 @@ namespace mobileappbackend1.Services
         {
             await _exercises.DeleteOneAsync(e => e.Id == id);
         }
+
+        /// <summary>
+        /// Batch-fetch exercises by a set of IDs. Used by FeatureEngineeringService to resolve
+        /// muscle groups for workout exercises without N+1 queries.
+        /// </summary>
+        public async Task<Dictionary<string, Exercise>> GetByIdsAsync(IEnumerable<string> ids)
+        {
+            var idList = ids.Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
+            if (idList.Count == 0) return new Dictionary<string, Exercise>();
+
+            var filter = Builders<Exercise>.Filter.In(e => e.Id, idList);
+            var exercises = await _exercises.Find(filter).ToListAsync();
+            return exercises
+                .Where(e => e.Id != null)
+                .ToDictionary(e => e.Id!, e => e);
+        }
     }
 }

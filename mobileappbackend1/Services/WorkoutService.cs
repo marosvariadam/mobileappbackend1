@@ -139,5 +139,27 @@ namespace mobileappbackend1.Services
         {
             await _workouts.DeleteOneAsync(w => w.Id == id);
         }
+
+        // ── ML feature engineering ────────────────────────────────────────────
+
+        /// <summary>
+        /// Returns all completed workouts for an athlete within the last <paramref name="maxWeeks"/>
+        /// weeks, sorted oldest-first. Used exclusively by FeatureEngineeringService.
+        /// No pagination — we need the full history for weekly aggregation.
+        /// </summary>
+        public async Task<List<Workout>> GetCompletedForMlAsync(string athleteId, int maxWeeks = 104)
+        {
+            var from = DateTime.UtcNow.AddDays(-(double)maxWeeks * 7);
+
+            var filter = Builders<Workout>.Filter.And(
+                Builders<Workout>.Filter.Eq(w => w.AthleteId, athleteId),
+                Builders<Workout>.Filter.Eq(w => w.Status, WorkoutStatus.Completed),
+                Builders<Workout>.Filter.Gte(w => w.CompletedAt, (DateTime?)from));
+
+            return await _workouts
+                .Find(filter)
+                .SortBy(w => w.CompletedAt)
+                .ToListAsync();
+        }
     }
 }

@@ -361,3 +361,6 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# ML.NET trained model binaries — regenerated at runtime, no need to version
+ModelStore/
