@@ -111,13 +111,15 @@ namespace mobileappbackend1.Services
         // Athlete: log actual results for one exercise by its index in the list
         public async Task LogExerciseAsync(
             string workoutId, int exerciseIndex,
-            int actualSets, int actualRepetitions, double actualWeightKg, string? athleteNotes)
+            int actualSets, int actualRepetitions, double actualWeightKg,
+            int? rpe, string? athleteNotes)
         {
             var prefix = $"Exercises.{exerciseIndex}";
             var update = Builders<Workout>.Update
                 .Set($"{prefix}.ActualSets", actualSets)
                 .Set($"{prefix}.ActualRepetitions", actualRepetitions)
                 .Set($"{prefix}.ActualWeightKg", actualWeightKg)
+                .Set($"{prefix}.Rpe", rpe)
                 .Set($"{prefix}.AthleteNotes", athleteNotes)
                 .Set($"{prefix}.IsCompleted", true);
 
@@ -135,9 +137,34 @@ namespace mobileappbackend1.Services
             await _workouts.UpdateOneAsync(w => w.Id == id, update);
         }
 
+        // Get all workouts created by a trainer for a specific athlete (for frequency counting)
+        public async Task<List<Workout>> GetAllByTrainerAndAthleteAsync(string trainerId, string athleteId)
+        {
+            var filter = Builders<Workout>.Filter.And(
+                Builders<Workout>.Filter.Eq(w => w.TrainerId, trainerId),
+                Builders<Workout>.Filter.Eq(w => w.AthleteId, athleteId));
+
+            return await _workouts.Find(filter).ToListAsync();
+        }
+
         public async Task DeleteAsync(string id)
         {
             await _workouts.DeleteOneAsync(w => w.Id == id);
+        }
+
+        // Stats: get completed exercise data points for a specific exercise name within a date range
+        public async Task<List<Workout>> GetCompletedByAthleteAndDateRangeAsync(
+            string athleteId, DateTime from, DateTime to)
+        {
+            var filter = Builders<Workout>.Filter.And(
+                Builders<Workout>.Filter.Eq(w => w.AthleteId, athleteId),
+                Builders<Workout>.Filter.Eq(w => w.Status, WorkoutStatus.Completed),
+                Builders<Workout>.Filter.Gte(w => w.CompletedAt, from),
+                Builders<Workout>.Filter.Lte(w => w.CompletedAt, to));
+
+            return await _workouts.Find(filter)
+                                  .SortBy(w => w.CompletedAt)
+                                  .ToListAsync();
         }
     }
 }

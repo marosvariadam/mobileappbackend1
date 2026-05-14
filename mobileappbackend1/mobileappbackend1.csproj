@@ -9,6 +9,9 @@
   <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.22" />
+    <PackageReference Include="Microsoft.Extensions.ML" Version="3.0.1" />
+    <PackageReference Include="Microsoft.ML" Version="3.0.1" />
+    <PackageReference Include="Microsoft.ML.LightGbm" Version="3.0.1" />
     <PackageReference Include="MongoDB.Bson" Version="3.5.1" />
     <PackageReference Include="MongoDB.Driver" Version="3.5.1" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />

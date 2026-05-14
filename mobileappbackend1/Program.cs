@@ -2,9 +2,11 @@ using System.Text;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.ML;
 using Microsoft.OpenApi.Models;
 using MongoDB.Driver;
 using mobileappbackend1.Hubs;
+using mobileappbackend1.ML;
 using mobileappbackend1.Models;
 using mobileappbackend1.Services;
 using mobileappbackend1.Settings;
@@ -44,6 +46,20 @@ internal class Program
         builder.Services.AddScoped<NotificationService>();
         builder.Services.AddScoped<OnboardingFormService>();
         builder.Services.AddScoped<TrainerRequestService>();
+        builder.Services.AddScoped<TrainingBlockService>();
+        builder.Services.AddScoped<FeatureEngineeringService>();
+
+        // ── ML ────────────────────────────────────────────────────────────────
+        // MLContext is thread-safe and reusable → singleton. ProgressTrainer is
+        // stateless; scoped keeps it aligned with the other services.
+        builder.Services.Configure<MLSettings>(builder.Configuration.GetSection("MLSettings"));
+        builder.Services.AddSingleton(_ => new MLContext(seed: 1));
+        builder.Services.AddScoped<ProgressTrainer>();
+        builder.Services.AddSingleton<PredictionEngineService>();
+        builder.Services.AddScoped<SyntheticDataGenerator>();
+        builder.Services.AddScoped<MetricsLogService>();
+        builder.Services.AddScoped<MLTrainingService>();
+        builder.Services.AddHostedService<PeriodicRetrainService>();
 
         // ── CORS ──────────────────────────────────────────────────────────────
         //
@@ -247,6 +263,89 @@ internal class Program
                     .Ascending(r => r.AthleteId)
                     .Ascending(r => r.TrainerId),
                 new CreateIndexOptions { Unique = true }));
+
+            // TrainingBlocks: feature-engineering resolves a block per (athlete, week),
+            // so (AthleteId, StartDate) is the hot query path.
+            var trainingBlocks = db.GetCollection<TrainingBlock>("TrainingBlocks");
+            trainingBlocks.Indexes.CreateOne(new CreateIndexModel<TrainingBlock>(
+                Builders<TrainingBlock>.IndexKeys
+                    .Ascending(b => b.AthleteId)
+                    .Ascending(b => b.StartDate)));
+
+            // ML metrics log: read pattern is "latest first" for the status/drift checks.
+            var mlMetrics = db.GetCollection<MetricsLog>("MlMetricsLog");
+            mlMetrics.Indexes.CreateOne(new CreateIndexModel<MetricsLog>(
+                Builders<MetricsLog>.IndexKeys.Descending(m => m.CreatedAt)));
+        }
+
+        // ── Seed default exercises ────────────────────────────────────────────
+
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<IMongoDatabase>();
+            var exercises = db.GetCollection<Exercise>("Exercises");
+
+            // Only seed if collection has no system defaults yet
+            var hasDefaults = exercises.Find(e => e.CreatedByTrainerId == null).Any();
+            if (!hasDefaults)
+            {
+                var defaults = new List<Exercise>
+                {
+                    // Chest
+                    new() { Name = "Bench Press",            MuscleGroup = "Chest",     Equipment = "Barbell" },
+                    new() { Name = "Incline Bench Press",    MuscleGroup = "Chest",     Equipment = "Barbell" },
+                    new() { Name = "Dumbbell Fly",           MuscleGroup = "Chest",     Equipment = "Dumbbells" },
+                    new() { Name = "Push-Up",                MuscleGroup = "Chest",     Equipment = "Bodyweight" },
+                    new() { Name = "Cable Crossover",        MuscleGroup = "Chest",     Equipment = "Cable Machine" },
+                    new() { Name = "Chest Dip",              MuscleGroup = "Chest",     Equipment = "Dip Station" },
+
+                    // Back
+                    new() { Name = "Deadlift",               MuscleGroup = "Back",      Equipment = "Barbell" },
+                    new() { Name = "Barbell Row",             MuscleGroup = "Back",      Equipment = "Barbell" },
+                    new() { Name = "Pull-Up",                 MuscleGroup = "Back",      Equipment = "Pull-Up Bar" },
+                    new() { Name = "Lat Pulldown",            MuscleGroup = "Back",      Equipment = "Cable Machine" },
+                    new() { Name = "Seated Cable Row",        MuscleGroup = "Back",      Equipment = "Cable Machine" },
+                    new() { Name = "Dumbbell Row",            MuscleGroup = "Back",      Equipment = "Dumbbells" },
+                    new() { Name = "T-Bar Row",               MuscleGroup = "Back",      Equipment = "T-Bar" },
+
+                    // Shoulders
+                    new() { Name = "Overhead Press",          MuscleGroup = "Shoulders", Equipment = "Barbell" },
+                    new() { Name = "Dumbbell Shoulder Press",  MuscleGroup = "Shoulders", Equipment = "Dumbbells" },
+                    new() { Name = "Lateral Raise",           MuscleGroup = "Shoulders", Equipment = "Dumbbells" },
+                    new() { Name = "Front Raise",             MuscleGroup = "Shoulders", Equipment = "Dumbbells" },
+                    new() { Name = "Face Pull",               MuscleGroup = "Shoulders", Equipment = "Cable Machine" },
+                    new() { Name = "Reverse Fly",             MuscleGroup = "Shoulders", Equipment = "Dumbbells" },
+
+                    // Legs
+                    new() { Name = "Squat",                   MuscleGroup = "Legs",      Equipment = "Barbell" },
+                    new() { Name = "Leg Press",               MuscleGroup = "Legs",      Equipment = "Leg Press Machine" },
+                    new() { Name = "Romanian Deadlift",       MuscleGroup = "Legs",      Equipment = "Barbell" },
+                    new() { Name = "Leg Curl",                MuscleGroup = "Legs",      Equipment = "Machine" },
+                    new() { Name = "Leg Extension",           MuscleGroup = "Legs",      Equipment = "Machine" },
+                    new() { Name = "Bulgarian Split Squat",   MuscleGroup = "Legs",      Equipment = "Dumbbells" },
+                    new() { Name = "Lunge",                   MuscleGroup = "Legs",      Equipment = "Dumbbells" },
+                    new() { Name = "Calf Raise",              MuscleGroup = "Legs",      Equipment = "Machine" },
+                    new() { Name = "Hip Thrust",              MuscleGroup = "Legs",      Equipment = "Barbell" },
+
+                    // Arms
+                    new() { Name = "Barbell Curl",            MuscleGroup = "Arms",      Equipment = "Barbell" },
+                    new() { Name = "Dumbbell Curl",           MuscleGroup = "Arms",      Equipment = "Dumbbells" },
+                    new() { Name = "Hammer Curl",             MuscleGroup = "Arms",      Equipment = "Dumbbells" },
+                    new() { Name = "Tricep Pushdown",         MuscleGroup = "Arms",      Equipment = "Cable Machine" },
+                    new() { Name = "Skull Crusher",           MuscleGroup = "Arms",      Equipment = "Barbell" },
+                    new() { Name = "Overhead Tricep Extension", MuscleGroup = "Arms",    Equipment = "Dumbbells" },
+
+                    // Core
+                    new() { Name = "Plank",                   MuscleGroup = "Core",      Equipment = "Bodyweight" },
+                    new() { Name = "Crunch",                  MuscleGroup = "Core",      Equipment = "Bodyweight" },
+                    new() { Name = "Hanging Leg Raise",       MuscleGroup = "Core",      Equipment = "Pull-Up Bar" },
+                    new() { Name = "Russian Twist",           MuscleGroup = "Core",      Equipment = "Bodyweight" },
+                    new() { Name = "Cable Woodchop",          MuscleGroup = "Core",      Equipment = "Cable Machine" },
+                    new() { Name = "Ab Rollout",              MuscleGroup = "Core",      Equipment = "Ab Wheel" },
+                };
+
+                exercises.InsertMany(defaults);
+            }
         }
 
         // ── Middleware pipeline ───────────────────────────────────────────────

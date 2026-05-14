@@ -38,6 +38,10 @@ namespace mobileappbackend1.Models
 
         public double? WeightKg { get; set; }
 
+        // When this athlete started training (not when the account was made).
+        // Used as the training-age feature for progress prediction.
+        public DateTime? TrainingStartedAt { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         // Refresh token support (stored as SHA-256 hash)

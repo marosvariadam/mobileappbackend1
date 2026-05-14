@@ -60,5 +60,25 @@ namespace mobileappbackend1.Services
         {
             await _exercises.DeleteOneAsync(e => e.Id == id);
         }
+
+        // Get all exercises visible to a trainer: system defaults + their own custom exercises
+        public async Task<List<Exercise>> GetVisibleToTrainerAsync(
+            string trainerId, string? search = null, string? muscleGroup = null)
+        {
+            var filter = Builders<Exercise>.Filter.Or(
+                Builders<Exercise>.Filter.Eq(e => e.CreatedByTrainerId, (string?)null),
+                Builders<Exercise>.Filter.Eq(e => e.CreatedByTrainerId, trainerId));
+
+            if (!string.IsNullOrWhiteSpace(search))
+                filter &= Builders<Exercise>.Filter.Regex(
+                    e => e.Name, new BsonRegularExpression(search, "i"));
+
+            if (!string.IsNullOrWhiteSpace(muscleGroup))
+                filter &= Builders<Exercise>.Filter.Eq(e => e.MuscleGroup, muscleGroup);
+
+            return await _exercises.Find(filter)
+                                   .SortBy(e => e.Name)
+                                   .ToListAsync();
+        }
     }
 }

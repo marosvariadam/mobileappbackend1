@@ -12,10 +12,17 @@ namespace mobileappbackend1.Controllers
     public class ExerciseController : ControllerBase
     {
         private readonly ExerciseService _exerciseService;
+        private readonly WorkoutService _workoutService;
+        private readonly UserService _userService;
 
-        public ExerciseController(ExerciseService exerciseService)
+        public ExerciseController(
+            ExerciseService exerciseService,
+            WorkoutService workoutService,
+            UserService userService)
         {
             _exerciseService = exerciseService;
+            _workoutService = workoutService;
+            _userService = userService;
         }
 
         // GET /api/exercise?search=squat&muscleGroup=Quads&page=1&pageSize=20
@@ -67,6 +74,40 @@ namespace mobileappbackend1.Controllers
             await _exerciseService.UpdateAsync(id, request.Name, request.MuscleGroup, request.Description, request.Equipment);
             var updated = await _exerciseService.GetByIdAsync(id);
             return Ok(updated);
+        }
+
+        // GET /api/exercise/for-athlete/{athleteId}?search=squat&muscleGroup=Chest
+        // Returns all exercises (system + trainer's custom) sorted by how often
+        // each exercise was used with the given athlete (most common first).
+        [HttpGet("for-athlete/{athleteId}")]
+        [Authorize(Roles = "Trainer")]
+        public async Task<IActionResult> GetForAthlete(
+            string athleteId,
+            [FromQuery] string? search = null,
+            [FromQuery] string? muscleGroup = null)
+        {
+            var trainerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+
+            var athlete = await _userService.GetByIdAsync(athleteId);
+            if (athlete == null || athlete.Role != UserRole.Athlete || athlete.TrainerId != trainerId)
+                return Forbid();
+
+            // Get all exercises visible to this trainer (system defaults + their own custom ones)
+            var allExercises = await _exerciseService.GetVisibleToTrainerAsync(trainerId, search, muscleGroup);
+
+            // Count exercise name frequency from all workouts with this athlete
+            var workouts = await _workoutService.GetAllByTrainerAndAthleteAsync(trainerId, athleteId);
+            var frequencyMap = workouts
+                .SelectMany(w => w.Exercises)
+                .GroupBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+
+            var sorted = allExercises
+                .OrderByDescending(e => frequencyMap.GetValueOrDefault(e.Name, 0))
+                .ThenBy(e => e.Name)
+                .ToList();
+
+            return Ok(sorted);
         }
 
         [HttpDelete("{id}")]

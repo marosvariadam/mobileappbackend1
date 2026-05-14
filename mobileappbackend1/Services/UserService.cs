@@ -34,6 +34,17 @@ namespace mobileappbackend1.Services
                 .ToListAsync();
         }
 
+        /// <summary>
+        /// Every athlete in the system, regardless of trainer assignment. Used
+        /// by the ML training orchestrator to build the global labeled dataset.
+        /// </summary>
+        public async Task<List<User>> GetAllAthletesAsync()
+        {
+            return await _users
+                .Find(u => u.Role == UserRole.Athlete)
+                .ToListAsync();
+        }
+
         public async Task CreateAsync(User newUser, string plainTextPassword)
         {
             var existing = await GetByEmailAsync(newUser.Email);

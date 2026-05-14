@@ -15,15 +15,37 @@ namespace mobileappbackend1.Controllers
         private readonly WorkoutService _workoutService;
         private readonly UserService _userService;
         private readonly NotificationService _notificationService;
+        private readonly ExerciseService _exerciseService;
 
         public WorkoutController(
             WorkoutService workoutService,
             UserService userService,
-            NotificationService notificationService)
+            NotificationService notificationService,
+            ExerciseService exerciseService)
         {
             _workoutService = workoutService;
             _userService = userService;
             _notificationService = notificationService;
+            _exerciseService = exerciseService;
+        }
+
+        // Resolve the MuscleGroup for each exercise item by looking up its Exercise
+        // by Id (preferred) or by Name (fallback). Denormalized onto the workout so
+        // feature engineering doesn't need to re-join on every prediction request.
+        private async Task<Dictionary<int, string?>> ResolveMuscleGroupsAsync(
+            IList<CreateWorkoutExerciseItem> items)
+        {
+            var map = new Dictionary<int, string?>();
+            for (int i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                Exercise? ex = null;
+                if (!string.IsNullOrEmpty(item.ExerciseId))
+                    ex = await _exerciseService.GetByIdAsync(item.ExerciseId);
+
+                map[i] = !string.IsNullOrWhiteSpace(ex?.MuscleGroup) ? ex!.MuscleGroup : null;
+            }
+            return map;
         }
 
         // ── Response mapping ────────────────────────────────────────────────────
@@ -38,9 +60,11 @@ namespace mobileappbackend1.Controllers
             targetWeightKg = e.TargetWeightKg,
             instructions   = e.TrainerNotes,
             equipmentType  = e.EquipmentType,
+            muscleGroup    = e.MuscleGroup,
             actualSets     = e.ActualSets,
             actualReps     = e.ActualRepetitions,
             actualWeightKg = e.ActualWeightKg,
+            rpe            = e.Rpe,
             exerciseNotes  = e.AthleteNotes
         };
 
@@ -115,6 +139,8 @@ namespace mobileappbackend1.Controllers
             if (request.Exercises.Count == 0)
                 return BadRequest(new { message = "At least one exercise is required." });
 
+            var muscleGroups = await ResolveMuscleGroupsAsync(request.Exercises);
+
             var workout = new Workout
             {
                 TrainerId     = trainerId,
@@ -124,7 +150,7 @@ namespace mobileappbackend1.Controllers
                 Difficulty    = difficulty,
                 ScheduledDate = request.ScheduledDate,
                 Status        = WorkoutStatus.Planned,
-                Exercises     = request.Exercises.Select(e => new WorkoutExercise
+                Exercises     = request.Exercises.Select((e, i) => new WorkoutExercise
                 {
                     ExerciseId        = string.IsNullOrEmpty(e.ExerciseId) ? null : e.ExerciseId,
                     Name              = e.Name,
@@ -132,7 +158,8 @@ namespace mobileappbackend1.Controllers
                     TargetRepetitions = e.TargetReps,
                     TargetWeightKg    = e.TargetWeightKg,
                     TrainerNotes      = e.Instructions,
-                    EquipmentType     = e.EquipmentType
+                    EquipmentType     = e.EquipmentType,
+                    MuscleGroup       = muscleGroups[i]
                 }).ToList()
             };
 
@@ -178,7 +205,9 @@ namespace mobileappbackend1.Controllers
             if (!Enum.TryParse<DifficultyLevel>(request.Difficulty, true, out var difficulty))
                 return BadRequest(new { message = "Invalid difficulty. Use: easy, moderate, hard, intense." });
 
-            var exercises = request.Exercises.Select(e => new WorkoutExercise
+            var muscleGroups = await ResolveMuscleGroupsAsync(request.Exercises);
+
+            var exercises = request.Exercises.Select((e, i) => new WorkoutExercise
             {
                 ExerciseId        = string.IsNullOrEmpty(e.ExerciseId) ? null : e.ExerciseId,
                 Name              = e.Name,
@@ -186,7 +215,8 @@ namespace mobileappbackend1.Controllers
                 TargetRepetitions = e.TargetReps,
                 TargetWeightKg    = e.TargetWeightKg,
                 TrainerNotes      = e.Instructions,
-                EquipmentType     = e.EquipmentType
+                EquipmentType     = e.EquipmentType,
+                MuscleGroup       = muscleGroups[i]
             }).ToList();
 
             await _workoutService.UpdateAsync(
@@ -334,7 +364,7 @@ namespace mobileappbackend1.Controllers
             await _workoutService.LogExerciseAsync(
                 workoutId, index,
                 request.ActualSets, request.ActualReps,
-                request.ActualWeightKg, request.ExerciseNotes);
+                request.ActualWeightKg, request.Rpe, request.ExerciseNotes);
 
             return NoContent();
         }
@@ -360,6 +390,89 @@ namespace mobileappbackend1.Controllers
 
             var updated = await _workoutService.GetByIdAsync(id);
             return Ok(await MapWorkoutAsync(updated!));
+        }
+
+        // ── Athlete: exercise stats ─────────────────────────────────────────────
+
+        [HttpGet("stats/exercise")]
+        [Authorize(Roles = "Athlete")]
+        public async Task<IActionResult> GetExerciseStats(
+            [FromQuery] string exerciseName,
+            [FromQuery] DateTime from,
+            [FromQuery] DateTime to)
+        {
+            if (string.IsNullOrWhiteSpace(exerciseName))
+                return BadRequest(new { message = "exerciseName is required." });
+
+            if (to < from)
+                return BadRequest(new { message = "'to' must be after 'from'." });
+            if ((to - from).TotalDays > 365)
+                return BadRequest(new { message = "Date range cannot exceed 365 days." });
+
+            var athleteId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+            var workouts = await _workoutService.GetCompletedByAthleteAndDateRangeAsync(athleteId, from, to);
+
+            var dataPoints = workouts
+                .SelectMany(w => w.Exercises
+                    .Where(e => e.IsCompleted
+                        && e.Name.Equals(exerciseName, StringComparison.OrdinalIgnoreCase))
+                    .Select(e => new
+                    {
+                        date         = w.CompletedAt,
+                        actualSets   = e.ActualSets,
+                        actualReps   = e.ActualRepetitions,
+                        actualWeightKg = e.ActualWeightKg,
+                        targetReps     = e.TargetRepetitions,
+                        targetWeightKg = e.TargetWeightKg
+                    }))
+                .OrderBy(d => d.date)
+                .ToList();
+
+            return Ok(dataPoints);
+        }
+
+        // ── Trainer: athlete exercise stats ─────────────────────────────────────
+
+        [HttpGet("stats/exercise/{athleteId}")]
+        [Authorize(Roles = "Trainer")]
+        public async Task<IActionResult> GetExerciseStatsForAthlete(
+            string athleteId,
+            [FromQuery] string exerciseName,
+            [FromQuery] DateTime from,
+            [FromQuery] DateTime to)
+        {
+            if (string.IsNullOrWhiteSpace(exerciseName))
+                return BadRequest(new { message = "exerciseName is required." });
+
+            if (to < from)
+                return BadRequest(new { message = "'to' must be after 'from'." });
+            if ((to - from).TotalDays > 365)
+                return BadRequest(new { message = "Date range cannot exceed 365 days." });
+
+            var trainerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+            var athlete = await _userService.GetByIdAsync(athleteId);
+            if (athlete == null || athlete.Role != UserRole.Athlete || athlete.TrainerId != trainerId)
+                return Forbid();
+
+            var workouts = await _workoutService.GetCompletedByAthleteAndDateRangeAsync(athleteId, from, to);
+
+            var dataPoints = workouts
+                .SelectMany(w => w.Exercises
+                    .Where(e => e.IsCompleted
+                        && e.Name.Equals(exerciseName, StringComparison.OrdinalIgnoreCase))
+                    .Select(e => new
+                    {
+                        date         = w.CompletedAt,
+                        actualSets   = e.ActualSets,
+                        actualReps   = e.ActualRepetitions,
+                        actualWeightKg = e.ActualWeightKg,
+                        targetReps     = e.TargetRepetitions,
+                        targetWeightKg = e.TargetWeightKg
+                    }))
+                .OrderBy(d => d.date)
+                .ToList();
+
+            return Ok(dataPoints);
         }
 
         // ── Shared: get by id ───────────────────────────────────────────────────
@@ -431,6 +544,7 @@ namespace mobileappbackend1.Controllers
         [Range(1, 100)] public int ActualSets { get; set; }
         [Range(1, 10000)] public int ActualReps { get; set; }
         [Range(0, 10000)] public double ActualWeightKg { get; set; }
+        [Range(0, 10)] public int? Rpe { get; set; }
         [MaxLength(1000)] public string? ExerciseNotes { get; set; }
     }
 

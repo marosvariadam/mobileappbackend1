@@ -75,11 +75,20 @@ namespace mobileappbackend1.Models
         [MaxLength(200)]
         public string? EquipmentType { get; set; }
 
+        // Denormalized from Exercise.MuscleGroup at save time so feature
+        // engineering doesn't need to join on every prediction request.
+        [MaxLength(100)]
+        public string? MuscleGroup { get; set; }
+
         // ── Logged by athlete ──────────────────────────────────────────
         public int? ActualSets { get; set; }
         public int? ActualRepetitions { get; set; }
         public double? ActualWeightKg { get; set; }
         public bool IsCompleted { get; set; } = false;
+
+        // Rating of Perceived Exertion, 0–10 (RIR-adjusted). Optional.
+        [Range(0, 10)]
+        public int? Rpe { get; set; }
 
         [MaxLength(1000)]
         public string? AthleteNotes { get; set; }
