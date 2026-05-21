@@ -20,7 +20,6 @@ namespace mobileappbackend1.Controllers
             _trainerRequestService = trainerRequestService;
         }
 
-        // ── Register ────────────────────────────────────────────────────────────
 
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] RegisterRequest request)
@@ -53,7 +52,7 @@ namespace mobileappbackend1.Controllers
                         }
                         catch (InvalidOperationException)
                         {
-                            // Duplicate request — safe to ignore during registration
+                            // Duplicate request - safe to ignore during registration
                         }
                     }
                 }
@@ -66,7 +65,6 @@ namespace mobileappbackend1.Controllers
             }
         }
 
-        // ── Get user by id ──────────────────────────────────────────────────────
 
         [HttpGet("{id}")]
         [Authorize]
@@ -87,7 +85,6 @@ namespace mobileappbackend1.Controllers
             });
         }
 
-        // ── Update user profile ─────────────────────────────────────────────────
 
         [HttpPut("{id}")]
         [Authorize]
@@ -128,7 +125,6 @@ namespace mobileappbackend1.Controllers
             });
         }
 
-        // ── Delete user ─────────────────────────────────────────────────────────
 
         [HttpDelete("{id}")]
         [Authorize]
@@ -142,7 +138,6 @@ namespace mobileappbackend1.Controllers
             return NoContent();
         }
 
-        // ── Get trainer's athletes ──────────────────────────────────────────────
 
         [HttpGet("trainer/{trainerId}/athletes")]
         [Authorize(Roles = "Trainer")]
@@ -164,7 +159,6 @@ namespace mobileappbackend1.Controllers
             }));
         }
 
-        // ── Leave trainer (athlete) ────────────────────────────────────────────
 
         [HttpPost("leave-trainer")]
         [Authorize(Roles = "Athlete")]
@@ -179,7 +173,6 @@ namespace mobileappbackend1.Controllers
             return NoContent();
         }
 
-        // ── Remove athlete (trainer) ──────────────────────────────────────────
 
         [HttpPost("remove-athlete/{athleteId}")]
         [Authorize(Roles = "Trainer")]
@@ -197,7 +190,6 @@ namespace mobileappbackend1.Controllers
             return NoContent();
         }
 
-        // ── Change password ─────────────────────────────────────────────────────
 
         [HttpPost("change-password")]
         [Authorize]
@@ -217,7 +209,6 @@ namespace mobileappbackend1.Controllers
         }
     }
 
-    // ── Request DTOs ────────────────────────────────────────────────────────────
 
     public class RegisterRequest
     {

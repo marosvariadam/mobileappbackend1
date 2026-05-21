@@ -58,7 +58,7 @@ namespace mobileappbackend1.Services
             await _users.InsertOneAsync(newUser);
         }
 
-        // Partial update — only non-sensitive fields; password changes go through ChangePasswordAsync
+        // Partial update - only non-sensitive fields; password changes go through ChangePasswordAsync
         public async Task UpdateAsync(string id, string firstName, string lastName, string email, string? trainerId, double? weightKg = null)
         {
             // Check email uniqueness if it is being changed
@@ -85,7 +85,7 @@ namespace mobileappbackend1.Services
 
         /// <summary>
         /// Links an athlete to a trainer after a join request is accepted.
-        /// Only called by TrainerRequestService — not exposed through the API directly.
+        /// Only called by TrainerRequestService - not exposed through the API directly.
         /// </summary>
         public async Task SetTrainerIdAsync(string athleteId, string trainerId)
         {

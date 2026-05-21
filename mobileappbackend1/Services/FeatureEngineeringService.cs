@@ -3,12 +3,7 @@ using mobileappbackend1.Models;
 
 namespace mobileappbackend1.Services
 {
-    /// <summary>
-    /// Turns raw completed-workout history + training blocks into weekly feature
-    /// vectors suitable for charting and for the progress prediction model.
-    /// All aggregation is per (athlete, exercise name) with ISO-week (Mon-start)
-    /// bucketing in UTC.
-    /// </summary>
+    /// <summary>Turns completed-workout history + training blocks into weekly feature vectors.</summary>
     public class FeatureEngineeringService
     {
         private readonly WorkoutService _workoutService;
@@ -48,11 +43,7 @@ namespace mobileappbackend1.Services
             return block?.Focus ?? "Full";
         }
 
-        /// <summary>
-        /// Build per-week aggregate features for one (athlete, exercise) pair
-        /// across the given date range. Returns rows in chronological order;
-        /// weeks with no completed sets are omitted.
-        /// </summary>
+        /// <summary>Build per-week aggregate features for one (athlete, exercise) pair.</summary>
         public async Task<List<WeeklyFeatureVector>> BuildWeeklyVectorsAsync(
             string athleteId, string exerciseName, DateTime from, DateTime to)
         {
@@ -154,15 +145,7 @@ namespace mobileappbackend1.Services
             return vectors;
         }
 
-        /// <summary>
-        /// Build labeled rows across every athlete and every exercise they've
-        /// logged in the given window. This is the global training set the ML
-        /// orchestrator feeds to <see cref="ML.ProgressTrainer"/>.
-        ///
-        /// Implementation note: re-fetches per (athlete × exercise) for clarity.
-        /// Acceptable while real data volume is small (a few athletes); revisit
-        /// if a single training run starts taking minutes.
-        /// </summary>
+        /// <summary>Build labeled rows across every athlete and every exercise they've logged.</summary>
         public async Task<List<LabeledTrainingRow>> BuildAllLabeledRowsAsync(DateTime from, DateTime to)
         {
             var athletes = await _userService.GetAllAthletesAsync();
@@ -192,11 +175,7 @@ namespace mobileappbackend1.Services
             return all;
         }
 
-        /// <summary>
-        /// Pair each week's features with the next week's 1RM delta as the label.
-        /// Only emits rows where *consecutive* weeks both have data (no gap-filling
-        /// — teaching the model to extrapolate across long layoffs would be noise).
-        /// </summary>
+        /// <summary>Pair each week's features with the next week's 1RM delta as the label.</summary>
         public async Task<List<LabeledTrainingRow>> BuildLabeledRowsAsync(
             string athleteId, string exerciseName, DateTime from, DateTime to)
         {

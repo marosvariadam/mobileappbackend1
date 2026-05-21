@@ -2,12 +2,7 @@ using Microsoft.ML.Data;
 
 namespace mobileappbackend1.ML
 {
-    /// <summary>
-    /// Flat row handed to the ML.NET pipeline — all numeric fields are <c>float</c>
-    /// (LightGBM's native type) and all categoricals are <c>string</c> that the
-    /// pipeline one-hot encodes. Nullable features from <see cref="WeeklyFeatureVector"/>
-    /// are filled with neutral defaults by <see cref="ToInput"/>.
-    /// </summary>
+    /// <summary>Flat row handed to the ML.NET pipeline.</summary>
     public class ProgressInput
     {
         public string ExerciseName { get; set; } = string.Empty;

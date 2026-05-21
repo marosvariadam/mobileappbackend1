@@ -17,7 +17,6 @@ internal class Program
     {
         var builder = WebApplication.CreateBuilder(args);
 
-        // ── MongoDB ───────────────────────────────────────────────────────────
 
         builder.Services.Configure<MongoDbSettings>(
             builder.Configuration.GetSection("MongoDbSettings"));
@@ -35,7 +34,6 @@ internal class Program
             return client.GetDatabase(settings!.DatabaseName);
         });
 
-        // ── Application services ──────────────────────────────────────────────
 
         builder.Services.AddSingleton<PresenceTracker>();
         builder.Services.AddScoped<UserService>();
@@ -49,8 +47,7 @@ internal class Program
         builder.Services.AddScoped<TrainingBlockService>();
         builder.Services.AddScoped<FeatureEngineeringService>();
 
-        // ── ML ────────────────────────────────────────────────────────────────
-        // MLContext is thread-safe and reusable → singleton. ProgressTrainer is
+        // MLContext is thread-safe and reusable - singleton. ProgressTrainer is
         // stateless; scoped keeps it aligned with the other services.
         builder.Services.Configure<MLSettings>(builder.Configuration.GetSection("MLSettings"));
         builder.Services.AddSingleton(_ => new MLContext(seed: 1));
@@ -61,7 +58,6 @@ internal class Program
         builder.Services.AddScoped<MLTrainingService>();
         builder.Services.AddHostedService<PeriodicRetrainService>();
 
-        // ── CORS ──────────────────────────────────────────────────────────────
         //
         // SignalR WebSocket / SSE transports require the browser to send credentials,
         // so AllowCredentials() is mandatory. ASP.NET Core forbids combining
@@ -84,7 +80,7 @@ internal class Program
                           .AllowAnyMethod()
                           .AllowCredentials();
                 else
-                    // Dev fallback — not safe for production
+                    // Dev fallback - not safe for production
                     policy.SetIsOriginAllowed(_ => true)
                           .AllowAnyHeader()
                           .AllowAnyMethod()
@@ -92,15 +88,12 @@ internal class Program
             });
         });
 
-        // ── SignalR ───────────────────────────────────────────────────────────
 
         builder.Services.AddSignalR();
 
-        // ── Health checks ─────────────────────────────────────────────────────
 
         builder.Services.AddHealthChecks();
 
-        // ── Controllers & Swagger ─────────────────────────────────────────────
 
         builder.Services.AddControllers()
             .AddJsonOptions(o =>
@@ -137,7 +130,6 @@ internal class Program
             });
         });
 
-        // ── JWT ───────────────────────────────────────────────────────────────
 
         var jwtSettings = builder.Configuration.GetSection("JwtSettings");
         var secretKey   = jwtSettings["SecretKey"]
@@ -187,11 +179,9 @@ internal class Program
             };
         });
 
-        // ── Build ─────────────────────────────────────────────────────────────
 
         var app = builder.Build();
 
-        // ── MongoDB indexes (idempotent — safe to run every startup) ──────────
 
         using (var scope = app.Services.CreateScope())
         {
@@ -278,7 +268,6 @@ internal class Program
                 Builders<MetricsLog>.IndexKeys.Descending(m => m.CreatedAt)));
         }
 
-        // ── Seed default exercises ────────────────────────────────────────────
 
         using (var scope = app.Services.CreateScope())
         {
@@ -348,7 +337,6 @@ internal class Program
             }
         }
 
-        // ── Middleware pipeline ───────────────────────────────────────────────
 
         if (app.Environment.IsDevelopment())
         {

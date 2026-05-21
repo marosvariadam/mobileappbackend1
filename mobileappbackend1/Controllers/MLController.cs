@@ -4,12 +4,7 @@ using mobileappbackend1.Services;
 
 namespace mobileappbackend1.Controllers
 {
-    /// <summary>
-    /// Trainer-facing operational endpoints for the progress prediction model.
-    /// Gated by the Trainer role for v1 — solo-dev deployment, no separate
-    /// admin role yet. Promote to a dedicated admin claim when multi-trainer
-    /// deployments arrive.
-    /// </summary>
+    /// <summary>Trainer-only endpoints for managing the progress prediction model.</summary>
     [ApiController]
     [Route("api/ml")]
     [Authorize(Roles = "Trainer")]
@@ -29,12 +24,7 @@ namespace mobileappbackend1.Controllers
             _predictionService = predictionService;
         }
 
-        /// <summary>
-        /// Force an immediate retrain. Returns the resulting metrics row when
-        /// done. Synchronous — under the current dataset size a full train
-        /// finishes in seconds. Move to a queued job model when training time
-        /// exceeds request timeout.
-        /// </summary>
+        /// <summary>Force an immediate retrain. Returns the resulting metrics row.</summary>
         [HttpPost("retrain")]
         public async Task<IActionResult> Retrain(CancellationToken ct)
         {

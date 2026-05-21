@@ -10,13 +10,13 @@ namespace mobileappbackend1.Hubs
     /// Connection: wss://host/hubs/chat?access_token={jwt}
     ///
     /// Client methods pushed by the server:
-    ///   "ReceiveMessage"   (Message)                    — a new message arrived
-    ///   "MessageDeleted"   ({ conversationId, messageId }) — a message was deleted
-    ///   "MessagesRead"     ({ conversationId, readByUserId }) — messages were marked as read
-    ///   "UserTyping"       ({ userId })                 — other user started typing
-    ///   "UserStoppedTyping"({ userId })                 — other user stopped typing
-    ///   "UserOnline"       ({ userId })                 — a user came online
-    ///   "UserOffline"      ({ userId })                 — a user went offline
+    ///   "ReceiveMessage"   (Message)                    - a new message arrived
+    ///   "MessageDeleted"   ({ conversationId, messageId }) - a message was deleted
+    ///   "MessagesRead"     ({ conversationId, readByUserId }) - messages were marked as read
+    ///   "UserTyping"       ({ userId })                 - other user started typing
+    ///   "UserStoppedTyping"({ userId })                 - other user stopped typing
+    ///   "UserOnline"       ({ userId })                 - a user came online
+    ///   "UserOffline"      ({ userId })                 - a user went offline
     /// </summary>
     [Authorize]
     public class ChatHub : Hub
@@ -30,7 +30,6 @@ namespace mobileappbackend1.Hubs
             _presenceTracker = presenceTracker;
         }
 
-        // ── Messaging ───────────────────────────────────────────────────────
 
         public async Task SendMessage(string recipientId, string content)
         {
@@ -54,7 +53,6 @@ namespace mobileappbackend1.Hubs
             await Clients.OthersInGroup($"user_{senderId}").SendAsync("ReceiveMessage", message);
         }
 
-        // ── Typing indicators ───────────────────────────────────────────────
 
         public async Task StartTyping(string recipientId)
         {
@@ -72,7 +70,6 @@ namespace mobileappbackend1.Hubs
             await Clients.User(recipientId).SendAsync("UserStoppedTyping", new { userId = senderId });
         }
 
-        // ── Read receipts ───────────────────────────────────────────────────
 
         public async Task MarkAsRead(string otherId)
         {
@@ -91,7 +88,6 @@ namespace mobileappbackend1.Hubs
             });
         }
 
-        // ── Message deletion ────────────────────────────────────────────────
 
         public async Task DeleteMessage(string messageId)
         {
@@ -109,7 +105,6 @@ namespace mobileappbackend1.Hubs
             await Clients.OthersInGroup($"user_{userId}").SendAsync("MessageDeleted", payload);
         }
 
-        // ── Presence / connection lifecycle ─────────────────────────────────
 
         public override async Task OnConnectedAsync()
         {

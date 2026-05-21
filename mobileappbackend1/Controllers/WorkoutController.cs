@@ -48,7 +48,6 @@ namespace mobileappbackend1.Controllers
             return map;
         }
 
-        // ── Response mapping ────────────────────────────────────────────────────
 
         private static object MapExercise(WorkoutExercise e, int index) => new
         {
@@ -116,7 +115,6 @@ namespace mobileappbackend1.Controllers
             }).ToList();
         }
 
-        // ── Trainer: create a session ───────────────────────────────────────────
 
         [HttpPost]
         [Authorize(Roles = "Trainer")]
@@ -186,7 +184,6 @@ namespace mobileappbackend1.Controllers
             return CreatedAtAction(nameof(GetById), new { id = workout.Id }, response);
         }
 
-        // ── Trainer: edit a session ─────────────────────────────────────────────
 
         [HttpPut("{id}")]
         [Authorize(Roles = "Trainer")]
@@ -242,7 +239,6 @@ namespace mobileappbackend1.Controllers
             return NoContent();
         }
 
-        // ── Trainer: review completed sessions ──────────────────────────────────
 
         [HttpGet("trainer/review/{athleteId}")]
         [Authorize(Roles = "Trainer")]
@@ -257,7 +253,6 @@ namespace mobileappbackend1.Controllers
             return Ok(await MapWorkoutsAsync(workouts));
         }
 
-        // ── Trainer: all created sessions ───────────────────────────────────────
 
         [HttpGet("trainer/created")]
         [Authorize(Roles = "Trainer")]
@@ -271,7 +266,6 @@ namespace mobileappbackend1.Controllers
             return Ok(await MapWorkoutsAsync(workouts));
         }
 
-        // ── Trainer: calendar ───────────────────────────────────────────────────
 
         [HttpGet("trainer/calendar")]
         [Authorize(Roles = "Trainer")]
@@ -288,7 +282,6 @@ namespace mobileappbackend1.Controllers
             return Ok(await MapWorkoutsAsync(workouts));
         }
 
-        // ── Athlete: calendar ───────────────────────────────────────────────────
 
         [HttpGet("my-workouts/calendar")]
         [Authorize(Roles = "Athlete")]
@@ -305,7 +298,6 @@ namespace mobileappbackend1.Controllers
             return Ok(await MapWorkoutsAsync(workouts));
         }
 
-        // ── Athlete: all sessions ───────────────────────────────────────────────
 
         [HttpGet("my-workouts")]
         [Authorize(Roles = "Athlete")]
@@ -319,7 +311,6 @@ namespace mobileappbackend1.Controllers
             return Ok(await MapWorkoutsAsync(workouts));
         }
 
-        // ── Athlete: start session ──────────────────────────────────────────────
 
         [HttpPatch("{id}/start")]
         [Authorize(Roles = "Athlete")]
@@ -341,7 +332,6 @@ namespace mobileappbackend1.Controllers
             return Ok(await MapWorkoutAsync(updated!));
         }
 
-        // ── Athlete: log exercise ───────────────────────────────────────────────
 
         [HttpPatch("{workoutId}/exercise/{index:int}")]
         [Authorize(Roles = "Athlete")]
@@ -369,7 +359,6 @@ namespace mobileappbackend1.Controllers
             return NoContent();
         }
 
-        // ── Athlete: complete session ───────────────────────────────────────────
 
         [HttpPatch("{id}/complete")]
         [Authorize(Roles = "Athlete")]
@@ -392,7 +381,6 @@ namespace mobileappbackend1.Controllers
             return Ok(await MapWorkoutAsync(updated!));
         }
 
-        // ── Athlete: exercise stats ─────────────────────────────────────────────
 
         [HttpGet("stats/exercise")]
         [Authorize(Roles = "Athlete")]
@@ -431,7 +419,6 @@ namespace mobileappbackend1.Controllers
             return Ok(dataPoints);
         }
 
-        // ── Trainer: athlete exercise stats ─────────────────────────────────────
 
         [HttpGet("stats/exercise/{athleteId}")]
         [Authorize(Roles = "Trainer")]
@@ -475,7 +462,6 @@ namespace mobileappbackend1.Controllers
             return Ok(dataPoints);
         }
 
-        // ── Shared: get by id ───────────────────────────────────────────────────
 
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(string id)
@@ -493,7 +479,6 @@ namespace mobileappbackend1.Controllers
         }
     }
 
-    // ── Request DTOs ──────────────────────────────────────────────────────────
 
     public class CreateWorkoutRequest
     {

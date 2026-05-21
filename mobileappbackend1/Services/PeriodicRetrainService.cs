@@ -3,16 +3,7 @@ using mobileappbackend1.Settings;
 
 namespace mobileappbackend1.Services
 {
-    /// <summary>
-    /// Hosted service that retrains the progress model on a fixed cadence
-    /// (default weekly per <see cref="MLSettings.RetrainIntervalHours"/>).
-    /// On startup, runs an immediate "bootstrap" train if no model file exists
-    /// so the prediction endpoint becomes useful before the first scheduled
-    /// tick. Otherwise waits the full interval before the first run.
-    ///
-    /// Drift-triggered off-cycle retrains are not implemented here yet — the
-    /// MetricsLog stream this writes to is the foundation for that follow-on.
-    /// </summary>
+    /// <summary>Background service that retrains the model on a cadence and bootstraps on first startup.</summary>
     public class PeriodicRetrainService : BackgroundService
     {
         private readonly IServiceScopeFactory _scopeFactory;

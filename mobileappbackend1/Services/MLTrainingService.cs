@@ -6,14 +6,7 @@ using mobileappbackend1.Settings;
 
 namespace mobileappbackend1.Services
 {
-    /// <summary>
-    /// Top-level training orchestrator. Pulls real labeled rows from history,
-    /// generates synthetic rows, blends the two with a real-row-count-driven
-    /// weight, hands the merged set to <see cref="ProgressTrainer"/>, persists
-    /// metrics, and pokes the live <see cref="PredictionEngineService"/> to
-    /// reload. Idempotent — safe to call from a hosted service or a manual
-    /// endpoint without coordination.
-    /// </summary>
+    /// <summary>Runs a training pass: gather real + synthetic rows, train, save, reload, log metrics.</summary>
     public class MLTrainingService
     {
         private readonly FeatureEngineeringService _featureService;
@@ -45,34 +38,25 @@ namespace mobileappbackend1.Services
             _logger = logger;
         }
 
-        /// <summary>
-        /// Run a full retrain end-to-end. <paramref name="trigger"/> is recorded
-        /// on the resulting <see cref="MetricsLog"/> ("manual" / "scheduled" /
-        /// "drift" / "bootstrap").
-        /// </summary>
+        /// <summary>Run a full retrain end-to-end and append a MetricsLog row.</summary>
         public async Task<MetricsLog> TrainAndSaveAsync(
             string trigger = "manual",
             CancellationToken ct = default)
         {
             var stopwatch = Stopwatch.StartNew();
 
-            // ── Real rows ─────────────────────────────────────────────────────
-            // Last 2 years of history. Older data isn't predictive of current
-            // training-age rows for the same athlete and bloats the dataset.
+            // Last 2 years of history.
             var to = DateTime.UtcNow;
             var from = to.AddYears(-2);
             var realRows = await _featureService.BuildAllLabeledRowsAsync(from, to);
             ct.ThrowIfCancellationRequested();
             _logger.LogInformation("Collected {Real} real labeled rows.", realRows.Count);
 
-            // ── Synthetic rows ────────────────────────────────────────────────
             var syntheticRows = _generator.Generate();
             ct.ThrowIfCancellationRequested();
             _logger.LogInformation("Generated {Syn} synthetic labeled rows.", syntheticRows.Count);
 
-            // ── Blend ─────────────────────────────────────────────────────────
-            // Synthetic shrinks as real grows. Below 1k real → keep all synthetic
-            // (bootstrap mode). Past 200k real → drop synthetic entirely.
+            // Synthetic shrinks as real grows; <1k real keeps all, >200k drops all.
             var syntheticToInclude = SubsampleSynthetic(realRows.Count, syntheticRows.Count);
             var blended = new List<LabeledTrainingRow>(realRows.Count + syntheticToInclude);
             blended.AddRange(realRows);
@@ -80,8 +64,7 @@ namespace mobileappbackend1.Services
                 blended.AddRange(syntheticRows);
             else if (syntheticToInclude > 0)
             {
-                // Deterministic subsample so two consecutive trains see the same
-                // synthetic slice unless real data changed.
+                // Deterministic subsample using a fixed seed.
                 var rng = new Random(1);
                 var indices = Enumerable.Range(0, syntheticRows.Count)
                                          .OrderBy(_ => rng.Next())
@@ -93,7 +76,6 @@ namespace mobileappbackend1.Services
                 "Blended dataset: {Total} rows ({Real} real + {Syn} synthetic).",
                 blended.Count, realRows.Count, syntheticToInclude);
 
-            // ── Train + save ──────────────────────────────────────────────────
             var modelPath = ResolveModelPath();
             ct.ThrowIfCancellationRequested();
 
@@ -101,15 +83,12 @@ namespace mobileappbackend1.Services
             stopwatch.Stop();
 
             _logger.LogInformation(
-                "Training complete. RMSE={Rmse:F3} kg, MAE={Mae:F3} kg, R²={R2:F3}, took {Sec:F1}s.",
+                "Training complete. RMSE={Rmse:F3} kg, MAE={Mae:F3} kg, R^2={R2:F3}, took {Sec:F1}s.",
                 result.Rmse, result.MeanAbsErr, result.RSquared, stopwatch.Elapsed.TotalSeconds);
 
-            // ── Reload live model ─────────────────────────────────────────────
-            // FileSystemWatcher would catch this anyway, but reload synchronously
-            // so the next prediction call is guaranteed to see the new model.
+            // Reload synchronously so the next prediction sees the new model.
             _predictionService.Reload();
 
-            // ── Persist metrics ───────────────────────────────────────────────
             var log = new MetricsLog
             {
                 CreatedAt         = DateTime.UtcNow,
@@ -127,10 +106,7 @@ namespace mobileappbackend1.Services
             return log;
         }
 
-        // Real-row-count → synthetic count to include. Matches the spec:
-        //   < 1,000 real         → keep all synthetic
-        //   1,000 – 200,000 real → linearly shrink, floor at 10% of synthetic
-        //   > 200,000 real       → drop synthetic
+        // Real-row-count to synthetic count to include.
         private static int SubsampleSynthetic(int realCount, int syntheticTotal)
         {
             if (realCount < 1_000)   return syntheticTotal;

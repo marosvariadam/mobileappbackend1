@@ -18,7 +18,7 @@ namespace mobileappbackend1.Services
 
         /// <summary>
         /// Persists a notification and immediately pushes it to all active connections
-        /// of the recipient via SignalR. Works even if the recipient is offline —
+        /// of the recipient via SignalR. Works even if the recipient is offline -
         /// the document is stored and the client fetches it on next GET /api/notification.
         /// </summary>
         public async Task<Notification> CreateAndSendAsync(

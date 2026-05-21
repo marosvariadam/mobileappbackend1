@@ -25,7 +25,7 @@ namespace mobileappbackend1.Services
                                 .ToListAsync();
         }
 
-        // Blocks overlapping a date range — used by feature engineering to resolve
+        // Blocks overlapping a date range - used by feature engineering to resolve
         // the focus for each week in that range.
         public async Task<List<TrainingBlock>> GetByAthleteDateRangeAsync(
             string athleteId, DateTime from, DateTime to)
@@ -40,7 +40,7 @@ namespace mobileappbackend1.Services
                                 .ToListAsync();
         }
 
-        // Overlap check — a block overlaps an existing one iff start <= other.end && end >= other.start.
+        // Overlap check - a block overlaps an existing one iff start <= other.end && end >= other.start.
         // Pass excludeId when updating so the row being updated doesn't collide with itself.
         public async Task<bool> HasOverlapAsync(
             string athleteId, DateTime start, DateTime end, string? excludeId = null)

@@ -4,15 +4,7 @@ using MongoDB.Bson.Serialization.Attributes;
 
 namespace mobileappbackend1.Models
 {
-    /// <summary>
-    /// A date-ranged "training block" a trainer assigns to an athlete, describing
-    /// the program phase (Push, Pull, Legs, Upper, Lower, Full, etc.). The
-    /// feature-engineering pipeline uses the focus of the block covering a given
-    /// week as the <c>Focus</c> feature for that week's rows.
-    ///
-    /// Blocks for the same athlete must not overlap; weeks uncovered by any block
-    /// default to <c>"Full"</c> at feature-gen time.
-    /// </summary>
+    /// <summary>A date-ranged training block assigned by a trainer to an athlete (Push/Pull/Legs/etc).</summary>
     public class TrainingBlock
     {
         [BsonId]

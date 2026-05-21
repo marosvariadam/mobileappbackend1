@@ -3,19 +3,7 @@ using mobileappbackend1.Settings;
 
 namespace mobileappbackend1.ML
 {
-    /// <summary>
-    /// Produces synthetic <see cref="LabeledTrainingRow"/> rows for cold-start
-    /// training. The shape, timing, and tier transitions are grounded in
-    /// published references where possible; constants without a clean published
-    /// source are flagged inline as <c>// heuristic</c>.
-    ///
-    /// Sources (cited at point of use):
-    ///   • calcffmi strength standards     https://calcffmi.com/strength-standards/
-    ///   • Lyle McDonald muscle-gain table https://bodyrecomposition.com/page/137
-    ///   • Coutinho et al. 2024 (deload)   https://pmc.ncbi.nlm.nih.gov/articles/PMC10948666/
-    ///   • Frontiers RPE study             https://www.frontiersin.org/journals/physiology/articles/10.3389/fphys.2018.00247/full
-    ///   • RP volume landmarks             https://rpstrength.com/blogs/articles/training-volume-landmarks-muscle-growth
-    /// </summary>
+    /// <summary>Generates synthetic labeled rows so the model can train before real data exists.</summary>
     public class SyntheticDataGenerator
     {
         private readonly MLSettings _settings;
@@ -25,45 +13,38 @@ namespace mobileappbackend1.ML
             _settings = settings.Value;
         }
 
-        // ── Tier boundaries (calcffmi) ────────────────────────────────────────
-        // Novice 0–6 mo, Beginner 6–18 mo, Intermediate 18–36 mo,
-        // Advanced 3–5 yr, Elite 5+ yr.  In weeks:
+        // Novice 0-6 mo, Beginner 6-18 mo, Intermediate 18-36 mo,
+        // Advanced 3-5 yr, Elite 5+ yr.  In weeks:
         private const int NoviceEnd       = 26;
         private const int BeginnerEnd     = 78;
         private const int IntermediateEnd = 156;
         private const int AdvancedEnd     = 260;
 
-        // ── Deload schedule (Coutinho 2024 PMC10948666) ───────────────────────
-        // "6.4 ± 1.7 days every 5.6 ± 2.3 weeks". We treat a deload as one
+        // "6.4 +/- 1.7 days every 5.6 +/- 2.3 weeks". We treat a deload as one
         // synthetic week and sample the inter-deload interval per athlete.
         private const double DeloadIntervalMeanWeeks = 5.6;
         private const double DeloadIntervalStdWeeks  = 2.3;
         private const double DeloadGainMultiplier    = 0.10;  // near-zero growth on deload weeks
 
-        // ── RPE distribution (Graham & Cleather 2018; MASS RPE/RIR guide) ─────
-        // Working-set RPE clusters around 7–8.5 under autoregulation.
+        // Working-set RPE clusters around 7-8.5 under autoregulation.
         private const double RpeMean   = 7.5;
         private const double RpeStdDev = 1.0;
         private const double RpeMinNormal = 5.0;
         private const double RpeMaxNormal = 9.5;
-        private const double RpeMeanDeload = 5.5;  // heuristic — deloads are easier sets
+        private const double RpeMeanDeload = 5.5; 
         private const double RpeMinDeload  = 3.0;
         private const double RpeMaxDeload  = 7.0;
 
-        // ── Bodyweight distribution ───────────────────────────────────────────
-        // heuristic — adult-lifter rough population
+        // Rough adult-lifter population
         private const double BodyweightMeanKg = 75.0;
         private const double BodyweightStdKg  = 15.0;
         private const double BodyweightMinKg  = 50.0;
         private const double BodyweightMaxKg  = 130.0;
 
-        // ── Multiplicative weekly noise ───────────────────────────────────────
         private const double WeeklyDeltaNoiseMean   = 1.0;
-        private const double WeeklyDeltaNoiseStd    = 0.30;  // heuristic — keeps the shape but noisy
+        private const double WeeklyDeltaNoiseStd    = 0.30; 
 
-        // ── Tier mix ──────────────────────────────────────────────────────────
-        // Realistic gym-population skew toward newer lifters; weighted to keep
-        // ML coverage of all tiers. heuristic.
+        // Skew toward newer lifters while keeping ML coverage of all tiers.
         private static readonly (int MinAgeWk, int MaxAgeWk, double Weight)[] TierMix =
         {
             (0,   NoviceEnd,                   0.25),
@@ -73,7 +54,6 @@ namespace mobileappbackend1.ML
             (AdvancedEnd,     520,             0.05),
         };
 
-        // ── Canonical exercise set ────────────────────────────────────────────
         // Subset of the seeded exercise list. Skips bodyweight / time-based
         // movements (Pull-Up, Plank) since their "weight" is ambiguous.
         private static readonly (string Name, string MuscleGroup)[] CanonicalExercises =
@@ -91,8 +71,7 @@ namespace mobileappbackend1.ML
             ("Tricep Pushdown",      "Arms"),
         };
 
-        // ── Block focus rotation patterns ─────────────────────────────────────
-        // heuristic — common training-split conventions
+        // Common training-split conventions
         private static readonly string[][] FocusPatterns =
         {
             new[] { "Push", "Pull", "Legs" },                 // PPL
@@ -102,11 +81,7 @@ namespace mobileappbackend1.ML
             new[] { "Push", "Pull", "Legs", "Push", "Pull", "Legs", "Full" },  // PPLx2 + recovery
         };
 
-        /// <summary>
-        /// Generate labeled rows for the configured number of athletes. The
-        /// timeline is anchored at <paramref name="anchorDate"/> Mon-start UTC;
-        /// each synthetic week increments by 7 days from there.
-        /// </summary>
+        /// <summary>Generate labeled rows for the configured number of athletes.</summary>
         public List<LabeledTrainingRow> Generate(
             int? athleteCount = null, int seed = 1, DateTime? anchorDate = null)
         {
@@ -126,7 +101,6 @@ namespace mobileappbackend1.ML
             return rows;
         }
 
-        // ── Per-athlete simulation ────────────────────────────────────────────
 
         private List<WeeklyFeatureVector> GenerateAthleteWeeks(
             Random rng, int athleteIndex, DateTime anchor)
@@ -137,9 +111,9 @@ namespace mobileappbackend1.ML
                 ClampedNormal(rng, DeloadIntervalMeanWeeks, DeloadIntervalStdWeeks, 3, 10));
             var nextDeloadWeek = deloadInterval + rng.Next(0, deloadInterval); // jitter the first one
             var pattern = FocusPatterns[rng.Next(FocusPatterns.Length)];
-            var blockLen = rng.Next(2, 5); // 2–4 weeks per block, heuristic
+            var blockLen = rng.Next(2, 5); // 2-4 weeks per block
 
-            // Pick 5–8 exercises for this athlete's repertoire.
+            // Pick 5-8 exercises for this athlete's repertoire.
             var exerciseCount = rng.Next(5, 9);
             var picks = CanonicalExercises
                 .OrderBy(_ => rng.Next())
@@ -217,7 +191,6 @@ namespace mobileappbackend1.ML
             return vectors;
         }
 
-        // ── Pair consecutive weeks per (athlete, exercise) into labels ────────
 
         private static void AppendLabeledPairs(
             List<WeeklyFeatureVector> vectors, List<LabeledTrainingRow> sink)
@@ -247,7 +220,6 @@ namespace mobileappbackend1.ML
             }
         }
 
-        // ── Strength curves ───────────────────────────────────────────────────
 
         // Squat-equivalent base slope (kg/week) interpolated from calcffmi
         // tier-end standards for an 82 kg reference lifter. The shape is
@@ -272,8 +244,8 @@ namespace mobileappbackend1.ML
                 "Back"      => 0.95, // deadlift-class
                 "Chest"     => 0.50,
                 "Shoulders" => 0.40,
-                "Arms"      => 0.45, // heuristic
-                "Core"      => 0.30, // heuristic
+                "Arms"      => 0.45,
+                "Core"      => 0.30,
                 _           => 0.50,
             };
 
@@ -285,13 +257,13 @@ namespace mobileappbackend1.ML
             var (n, b, i, a, e) = exerciseName switch
             {
                 "Squat" or "Romanian Deadlift" => (0.86, 1.44, 1.97, 2.61, 3.22),
-                "Leg Press"                    => (1.50, 2.50, 3.50, 4.50, 5.50), // heuristic — typically 1.5–2× squat
+                "Leg Press"                    => (1.50, 2.50, 3.50, 4.50, 5.50), // typically 1.5-2x squat
                 "Deadlift"                     => (1.06, 1.69, 2.31, 2.97, 3.61),
-                "Barbell Row" or "Lat Pulldown"=> (0.55, 0.85, 1.15, 1.45, 1.75), // heuristic — ~half of deadlift
+                "Barbell Row" or "Lat Pulldown"=> (0.55, 0.85, 1.15, 1.45, 1.75), // ~half of deadlift
                 "Bench Press" or "Incline Bench Press" => (0.64, 0.94, 1.31, 1.69, 2.11),
                 "Overhead Press"               => (0.42, 0.61, 0.83, 1.08, 1.33),
-                "Barbell Curl"                 => (0.25, 0.40, 0.55, 0.70, 0.85), // heuristic
-                "Tricep Pushdown"              => (0.30, 0.45, 0.60, 0.75, 0.90), // heuristic
+                "Barbell Curl"                 => (0.25, 0.40, 0.55, 0.70, 0.85),
+                "Tricep Pushdown"              => (0.30, 0.45, 0.60, 0.75, 0.90),
                 _                              => (0.50, 0.80, 1.00, 1.20, 1.40),
             };
 
@@ -309,8 +281,8 @@ namespace mobileappbackend1.ML
         }
 
         // Weight that produces the given (reps, RPE) for an athlete with this 1RM.
-        // RPE → RIR: RIR = 10 - RPE.  Total reps in reserve at failure = reps + RIR.
-        // Epley inverse: weight = 1RM × 30 / (30 + reps + RIR).
+        // RPE - RIR: RIR = 10 - RPE.  Total reps in reserve at failure = reps + RIR.
+        // Epley inverse: weight = 1RM x 30 / (30 + reps + RIR).
         private static double WeightFromOneRm(double oneRm, int reps, double rpe)
         {
             var rir = Math.Max(0, 10.0 - rpe);
@@ -321,7 +293,6 @@ namespace mobileappbackend1.ML
         private static double Epley(double weightKg, int reps) =>
             reps <= 0 ? 0 : weightKg * (1.0 + reps / 30.0);
 
-        // ── Sampling helpers ──────────────────────────────────────────────────
 
         private static int SampleStartingTrainingAge(Random rng)
         {
@@ -337,12 +308,12 @@ namespace mobileappbackend1.ML
         }
 
         // Bias rep counts toward common rep schemes (5, 8, 10, 12).
-        // heuristic but mirrors how real programs are written.
+        // Mirrors common rep schemes used in real programs.
         private static int SampleReps(Random rng, bool isDeload)
         {
             if (isDeload)
                 return new[] { 5, 6, 8 }[rng.Next(3)];
-            // Weighted distribution: 5×reps strength bias, 8/10/12 hypertrophy bias
+            // Weighted distribution: 5xreps strength bias, 8/10/12 hypertrophy bias
             var roll = rng.NextDouble();
             return roll switch
             {

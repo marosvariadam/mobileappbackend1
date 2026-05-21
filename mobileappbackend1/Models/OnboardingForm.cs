@@ -11,7 +11,7 @@ namespace mobileappbackend1.Models
         Text,
         /// <summary>Athlete picks one option from a list.</summary>
         MultipleChoice,
-        /// <summary>Numeric rating 1 – 10 (e.g. "How would you rate your fitness level?").</summary>
+        /// <summary>Numeric rating 1 - 10 (e.g. "How would you rate your fitness level?").</summary>
         Scale
     }
 
@@ -60,7 +60,6 @@ namespace mobileappbackend1.Models
         public bool IsRequired { get; set; } = true;
     }
 
-    // ── Athlete response ──────────────────────────────────────────────────────
 
     /// <summary>An athlete's completed answers to their trainer's intake form.</summary>
     public class OnboardingResponse

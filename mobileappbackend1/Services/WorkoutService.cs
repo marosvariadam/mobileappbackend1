@@ -83,7 +83,7 @@ namespace mobileappbackend1.Services
                                   .ToListAsync();
         }
 
-        // Trainer: edit session title, notes, difficulty, date, exercise list — only while status is Planned
+        // Trainer: edit session title, notes, difficulty, date, exercise list - only while status is Planned
         public async Task UpdateAsync(
             string id, string title, string? trainerNotes,
             DifficultyLevel difficulty, DateTime scheduledDate, List<WorkoutExercise> exercises)
@@ -98,7 +98,7 @@ namespace mobileappbackend1.Services
             await _workouts.UpdateOneAsync(w => w.Id == id, update);
         }
 
-        // Athlete: transition Planned → InProgress
+        // Athlete: transition Planned - InProgress
         public async Task StartAsync(string id)
         {
             var update = Builders<Workout>.Update
@@ -126,7 +126,7 @@ namespace mobileappbackend1.Services
             await _workouts.UpdateOneAsync(w => w.Id == workoutId, update);
         }
 
-        // Athlete: transition InProgress → Completed, attach session-level feedback
+        // Athlete: transition InProgress - Completed, attach session-level feedback
         public async Task CompleteWithFeedbackAsync(string id, string? athleteFeedback)
         {
             var update = Builders<Workout>.Update

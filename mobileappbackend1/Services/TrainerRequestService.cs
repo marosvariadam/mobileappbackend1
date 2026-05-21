@@ -112,7 +112,7 @@ namespace mobileappbackend1.Services
         /// Trainer accepts the request.
         /// Side-effects (all atomic from the caller's perspective):
         ///   1. Athlete.TrainerId is set.
-        ///   2. Request status → Accepted.
+        ///   2. Request status - Accepted.
         ///   3. Athlete is notified ("request accepted").
         ///   4. If the trainer has an onboarding form, athlete is also notified to fill it in.
         /// </summary>
@@ -203,7 +203,6 @@ namespace mobileappbackend1.Services
             await _requests.DeleteOneAsync(r => r.Id == requestId);
         }
 
-        // ── Private helpers ───────────────────────────────────────────────────
 
         private async Task<TrainerRequest> GetAndValidate(string requestId, string trainerId)
         {

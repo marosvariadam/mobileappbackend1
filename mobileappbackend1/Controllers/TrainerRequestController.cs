@@ -23,7 +23,6 @@ namespace mobileappbackend1.Controllers
             _userService    = userService;
         }
 
-        // ── Helper: enrich a TrainerRequest with names/emails ───────────────────
 
         private async Task<object> MapRequest(TrainerRequest r)
         {
@@ -79,7 +78,6 @@ namespace mobileappbackend1.Controllers
             }).ToList();
         }
 
-        // ── Athlete ───────────────────────────────────────────────────────────
 
         [HttpPost]
         [Authorize(Roles = "Athlete")]
@@ -132,7 +130,6 @@ namespace mobileappbackend1.Controllers
             catch (InvalidOperationException ex) { return Conflict(new { message = ex.Message }); }
         }
 
-        // ── Trainer ───────────────────────────────────────────────────────────
 
         [HttpGet("pending")]
         [Authorize(Roles = "Trainer")]

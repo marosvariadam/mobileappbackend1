@@ -23,7 +23,6 @@ namespace mobileappbackend1.Services
             _users    = database.GetCollection<User>("Users");
         }
 
-        // ── Helpers ──────────────────────────────────────────────────────────
 
         public static string BuildConversationId(string userId1, string userId2)
         {
@@ -46,7 +45,6 @@ namespace mobileappbackend1.Services
             return other?.Role == UserRole.Athlete && other.TrainerId == userId1;
         }
 
-        // ── Write ─────────────────────────────────────────────────────────────
 
         public async Task<Message> SendAsync(string senderId, string recipientId, string content)
         {
@@ -65,7 +63,6 @@ namespace mobileappbackend1.Services
             return message;
         }
 
-        // ── Read ──────────────────────────────────────────────────────────────
 
         public async Task<List<Message>> GetConversationAsync(
             string userId, string otherId, int page = 1, int pageSize = 50)
@@ -152,7 +149,6 @@ namespace mobileappbackend1.Services
             return (int)await _messages.CountDocumentsAsync(unreadFilter);
         }
 
-        // ── Update ────────────────────────────────────────────────────────────
 
         public async Task MarkConversationAsReadAsync(string currentUserId, string otherId)
         {
@@ -168,7 +164,6 @@ namespace mobileappbackend1.Services
                 Builders<Message>.Update.Set(m => m.IsRead, true));
         }
 
-        // ── Delete ────────────────────────────────────────────────────────────
 
         /// <summary>
         /// Soft-deletes a message. Only the sender can delete their own messages.

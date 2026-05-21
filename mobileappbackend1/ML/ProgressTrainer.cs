@@ -3,18 +3,9 @@ using Microsoft.ML.Transforms;
 
 namespace mobileappbackend1.ML
 {
-    /// <summary>
-    /// Builds the ML.NET regression pipeline (OneHotEncoding → Concatenate →
-    /// NormalizeMinMax → LightGBM), fits on labeled rows, evaluates on a held-out
-    /// slice, and writes the model to <paramref name="modelPath"/>.
-    ///
-    /// Stateless — safe to construct per-call. The orchestration layer (a later
-    /// <c>MLTrainingService</c>) will choose when to run and where to save.
-    /// </summary>
+    /// <summary>Builds the ML.NET regression pipeline, fits on labeled rows, and writes the model to disk.</summary>
     public class ProgressTrainer
     {
-        // Below this, LightGBM will either refuse to fit or produce a model that
-        // just memorizes noise. Enforced early so callers fail loudly.
         public const int MinLabeledRows = 50;
 
         private readonly MLContext _ml;

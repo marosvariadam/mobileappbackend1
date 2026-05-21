@@ -14,7 +14,6 @@ namespace mobileappbackend1.Services
             _responses = database.GetCollection<OnboardingResponse>("OnboardingResponses");
         }
 
-        // ── Form (trainer) ────────────────────────────────────────────────────
 
         /// <summary>
         /// Each trainer has exactly one intake form. Calling this again replaces it.
@@ -69,7 +68,6 @@ namespace mobileappbackend1.Services
             return await _forms.Find(f => f.Id == id).FirstOrDefaultAsync();
         }
 
-        // ── Response (athlete) ────────────────────────────────────────────────
 
         /// <summary>
         /// Upsert: an athlete can re-submit to update their answers.

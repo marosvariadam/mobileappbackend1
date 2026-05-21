@@ -5,16 +5,7 @@ using mobileappbackend1.Settings;
 
 namespace mobileappbackend1.Services
 {
-    /// <summary>
-    /// Singleton wrapper around the trained LightGBM model. Loads the .zip from
-    /// <see cref="MLSettings.ModelPath"/> on startup (if present) and re-loads
-    /// whenever the file changes, so retraining is picked up without a restart.
-    ///
-    /// <see cref="Predict"/> returns <c>null</c> when no model has been trained
-    /// yet — callers treat that as "no prediction available" rather than an
-    /// error, which keeps the first-run UX sane before any training has
-    /// happened.
-    /// </summary>
+    /// <summary>Loads and reloads the trained model, exposes thread-safe Predict, returns null when no model is loaded.</summary>
     public class PredictionEngineService : IDisposable
     {
         private readonly MLContext _ml;
@@ -62,8 +53,7 @@ namespace mobileappbackend1.Services
             try
             {
                 if (_model == null) return null;
-                // PredictionEngine is single-threaded; construct per call. Cheap
-                // enough for our QPS; upgrade to a pool if latency matters later.
+                // PredictionEngine is single-threaded; construct per call.
                 var engine = _ml.Model.CreatePredictionEngine<ProgressInput, ProgressPrediction>(_model);
                 return engine.Predict(input);
             }
@@ -103,7 +93,7 @@ namespace mobileappbackend1.Services
             catch (Exception ex)
             {
                 // Partial writes during retrain can briefly produce a bad zip;
-                // log but don't crash — next Changed event will retry.
+                // log but don't crash - next Changed event will retry.
                 _logger.LogWarning(ex, "Failed to load model from {Path}; will retry on next change.", _resolvedPath);
             }
         }

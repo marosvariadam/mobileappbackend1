@@ -1,16 +1,6 @@
 namespace mobileappbackend1.ML
 {
-    /// <summary>
-    /// How much a given training-block <c>Focus</c> drives adaptation in a
-    /// target <c>MuscleGroup</c>, on a 0.0–1.0 scale. Used as the
-    /// <c>OverlapScore</c> feature for the progress model: high overlap means
-    /// the block is "on target" for the exercise we're predicting, so the model
-    /// expects larger next-week deltas.
-    ///
-    /// Values come from "primary movers + significant synergists" rules of
-    /// thumb, not research literature. Review with a coach before freezing;
-    /// extract to config if trainers ever need to edit per-gym.
-    /// </summary>
+    /// <summary>Matrix of how strongly a focus drives adaptation in a muscle group, 0.0-1.0.</summary>
     public static class MuscleOverlap
     {
         private const double Default = 0.10;
@@ -81,7 +71,7 @@ namespace mobileappbackend1.ML
 
         /// <summary>
         /// Returns the overlap score in [0, 1] for a (focus, muscleGroup) pair.
-        /// Falls back to self-match heuristics when the focus is itself a
+        /// Falls back to self-match approximations when the focus is itself a
         /// muscle-group name (e.g. "Chest"), and to <see cref="Default"/> for
         /// anything unknown so prediction never hard-fails on a typo.
         /// </summary>
@@ -95,7 +85,7 @@ namespace mobileappbackend1.ML
                 return score;
 
             // Focus is itself a muscle-group name (e.g. "Chest" block).
-            // Matching group → 1.0, else a small non-match bleed.
+            // Matching group - 1.0, else a small non-match bleed.
             return string.Equals(focus, muscleGroup, StringComparison.OrdinalIgnoreCase)
                 ? SelfMatch
                 : NonMatch;

@@ -12,7 +12,7 @@ namespace mobileappbackend1.Models
         /// <summary>
         /// Deterministic ID shared by both participants:
         /// the two user ObjectIds sorted lexicographically and joined with "_".
-        /// Generated server-side — never trusted from the client.
+        /// Generated server-side - never trusted from the client.
         /// </summary>
         public string ConversationId { get; set; } = string.Empty;
 

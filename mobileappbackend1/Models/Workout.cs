@@ -59,7 +59,6 @@ namespace mobileappbackend1.Models
         [MaxLength(200)]
         public string Name { get; set; } = string.Empty;
 
-        // ── Prescribed by trainer ──────────────────────────────────────
         [Range(1, 100)]
         public int Sets { get; set; }
 
@@ -80,13 +79,12 @@ namespace mobileappbackend1.Models
         [MaxLength(100)]
         public string? MuscleGroup { get; set; }
 
-        // ── Logged by athlete ──────────────────────────────────────────
         public int? ActualSets { get; set; }
         public int? ActualRepetitions { get; set; }
         public double? ActualWeightKg { get; set; }
         public bool IsCompleted { get; set; } = false;
 
-        // Rating of Perceived Exertion, 0–10 (RIR-adjusted). Optional.
+        // Rating of Perceived Exertion, 0-10 (RIR-adjusted). Optional.
         [Range(0, 10)]
         public int? Rpe { get; set; }
 

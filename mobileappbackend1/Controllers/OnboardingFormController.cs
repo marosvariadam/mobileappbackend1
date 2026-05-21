@@ -26,7 +26,6 @@ namespace mobileappbackend1.Controllers
             _userService         = userService;
         }
 
-        // ── Trainer: manage their intake form ─────────────────────────────────
 
         [HttpPut]
         [Authorize(Roles = "Trainer")]
@@ -103,7 +102,6 @@ namespace mobileappbackend1.Controllers
             });
         }
 
-        // ── Athlete: fill in the form ─────────────────────────────────────────
 
         [HttpGet("my-trainer-form")]
         [Authorize(Roles = "Athlete")]
@@ -181,7 +179,6 @@ namespace mobileappbackend1.Controllers
         }
     }
 
-    // ── Request DTOs ──────────────────────────────────────────────────────────
 
     public class UpsertOnboardingFormRequest
     {

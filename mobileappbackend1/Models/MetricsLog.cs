@@ -3,11 +3,7 @@ using MongoDB.Bson.Serialization.Attributes;
 
 namespace mobileappbackend1.Models
 {
-    /// <summary>
-    /// Append-only record of every model training run. Read by the drift-check
-    /// path to compare current holdout RMSE against the last trained baseline,
-    /// and by the trainer-facing dashboard to show "last trained at / quality".
-    /// </summary>
+    /// <summary>Append-only record of one ML training run.</summary>
     public class MetricsLog
     {
         [BsonId]
@@ -16,7 +12,7 @@ namespace mobileappbackend1.Models
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-        /// <summary>"manual" | "scheduled" | "drift" | "bootstrap"</summary>
+        /// <summary>One of: "manual", "scheduled", "drift", "bootstrap".</summary>
         public string Trigger { get; set; } = "manual";
 
         public int RowCount          { get; set; }
@@ -27,7 +23,7 @@ namespace mobileappbackend1.Models
         public double MeanAbsErr { get; set; }
         public double RSquared   { get; set; }
 
-        /// <summary>Wall-clock time the train + save took, for capacity planning.</summary>
+        /// <summary>Wall-clock time the train + save took.</summary>
         public double DurationSeconds { get; set; }
     }
 }

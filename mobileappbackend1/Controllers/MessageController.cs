@@ -28,7 +28,6 @@ namespace mobileappbackend1.Controllers
             _chatHub        = chatHub;
         }
 
-        // ── GET conversations ─────────────────────────────────────────────────
 
         [HttpGet("conversations")]
         public async Task<IActionResult> GetConversations()
@@ -61,7 +60,6 @@ namespace mobileappbackend1.Controllers
             return Ok(response);
         }
 
-        // ── GET history ───────────────────────────────────────────────────────
 
         [HttpGet("{otherId}")]
         public async Task<ActionResult<List<Message>>> GetHistory(
@@ -77,7 +75,6 @@ namespace mobileappbackend1.Controllers
             return Ok(messages);
         }
 
-        // ── GET total unread count ──────────────────────────────────────────
 
         [HttpGet("unread-count")]
         public async Task<IActionResult> GetUnreadCount()
@@ -87,7 +84,6 @@ namespace mobileappbackend1.Controllers
             return Ok(new { unreadCount = count });
         }
 
-        // ── POST send ─────────────────────────────────────────────────────────
 
         [HttpPost("{recipientId}")]
         public async Task<IActionResult> Send(
@@ -110,7 +106,6 @@ namespace mobileappbackend1.Controllers
             return CreatedAtAction(nameof(GetHistory), new { otherId = recipientId }, message);
         }
 
-        // ── PATCH mark as read ────────────────────────────────────────────────
 
         [HttpPatch("{otherId}/read")]
         public async Task<IActionResult> MarkAsRead(string otherId)
@@ -130,7 +125,6 @@ namespace mobileappbackend1.Controllers
             return NoContent();
         }
 
-        // ── DELETE message ──────────────────────────────────────────────────
 
         [HttpDelete("{messageId}")]
         public async Task<IActionResult> DeleteMessage(string messageId)

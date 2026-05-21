@@ -7,12 +7,7 @@ using mobileappbackend1.Services;
 
 namespace mobileappbackend1.Controllers
 {
-    /// <summary>
-    /// Chart-feeding endpoint for the progress prediction model. Returns the
-    /// athlete's historical weekly Est1Rm series alongside a forecast of the
-    /// next N weeks under a given (or inferred) program focus, with a
-    /// growing ±RMSE confidence band.
-    /// </summary>
+    /// <summary>Returns historical and predicted Est1Rm series for an exercise.</summary>
     [ApiController]
     [Route("api/prediction")]
     [Authorize]
@@ -41,7 +36,6 @@ namespace mobileappbackend1.Controllers
             _userService = userService;
         }
 
-        // ── Athlete: forecast for self ──────────────────────────────────────────
         [HttpGet("exercise")]
         [Authorize(Roles = "Athlete")]
         public async Task<IActionResult> GetForSelf(
@@ -53,7 +47,6 @@ namespace mobileappbackend1.Controllers
             return await BuildResponseAsync(athleteId, exerciseName, weeksAhead, focus);
         }
 
-        // ── Trainer: forecast for one of their athletes ─────────────────────────
         [HttpGet("exercise/{athleteId}")]
         [Authorize(Roles = "Trainer")]
         public async Task<IActionResult> GetForAthlete(
@@ -70,7 +63,6 @@ namespace mobileappbackend1.Controllers
             return await BuildResponseAsync(athleteId, exerciseName, weeksAhead, focus);
         }
 
-        // ── Shared response builder ─────────────────────────────────────────────
 
         private async Task<IActionResult> BuildResponseAsync(
             string athleteId, string exerciseName, int weeksAhead, string? focus)
@@ -80,8 +72,7 @@ namespace mobileappbackend1.Controllers
             if (weeksAhead < 1 || weeksAhead > MaxWeeksAhead)
                 return BadRequest(new { message = $"weeksAhead must be between 1 and {MaxWeeksAhead}." });
 
-            // Pull two years of history — matches the training window so the
-            // model sees comparable feature distributions.
+            // Pull two years of history.
             var to = DateTime.UtcNow;
             var from = to.AddYears(-2);
             var history = await _featureService.BuildWeeklyVectorsAsync(athleteId, exerciseName, from, to);
@@ -116,13 +107,12 @@ namespace mobileappbackend1.Controllers
                 {
                     var input = ProgressInput.FromFeatures(current);
                     var pred = _predictionService.Predict(input);
-                    if (pred == null) break;  // race with reload — bail gracefully
+                    if (pred == null) break;  // race with reload - bail gracefully
 
                     var nextEst1Rm = Math.Max(0, current.Est1Rm + pred.PredictedDelta);
                     var nextWeekStart = current.WeekStart.AddDays(7);
 
-                    // Confidence band grows with horizon — single-step error
-                    // accumulates as variance, so std grows like √n.
+                    // Confidence band grows like sqrt(step).
                     var band = rmseKg * Math.Sqrt(step);
 
                     predictedSeries.Add(new
@@ -143,10 +133,7 @@ namespace mobileappbackend1.Controllers
                     advanced.IsBeginner       = advanced.TrainingAgeWeeks < 52;
                     advanced.Focus            = resolvedFocus;
                     advanced.OverlapScore     = current.OverlapScore;
-                    // VolumeKg / SetCount / TotalReps / AvgRpe carry forward —
-                    // assumes the athlete keeps training similarly over the
-                    // forecast horizon. Replace with caller-supplied values when
-                    // we expose "what-if I trained more/less" UI.
+                    // Volume / set / rep / RPE carry forward; assumes similar training.
                     current = advanced;
                 }
             }
@@ -165,7 +152,6 @@ namespace mobileappbackend1.Controllers
             });
         }
 
-        // ── Helpers ─────────────────────────────────────────────────────────────
 
         // Find the focus of the block covering "today"; fall back to the most
         // recent past block, then to "Full" when the athlete has no blocks.
