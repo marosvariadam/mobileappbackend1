@@ -71,7 +71,17 @@ namespace mobileappbackend1.Controllers
                     return Forbid();
             }
 
-            await _exerciseService.UpdateAsync(id, request.Name, request.MuscleGroup, request.Description, request.Equipment);
+            await _exerciseService.UpdateAsync(
+                id,
+                request.Name,
+                request.MuscleGroup,
+                request.Description,
+                request.Equipment ?? new List<EquipmentType>(),
+                request.SecondaryMuscleGroups ?? new List<string>(),
+                request.MovementPattern,
+                request.IsCompound,
+                request.MinLevel,
+                request.StressTags ?? new List<string>());
             var updated = await _exerciseService.GetByIdAsync(id);
             return Ok(updated);
         }
@@ -142,7 +152,11 @@ namespace mobileappbackend1.Controllers
         [System.ComponentModel.DataAnnotations.MaxLength(1000)]
         public string? Description { get; set; }
 
-        [System.ComponentModel.DataAnnotations.MaxLength(200)]
-        public string? Equipment { get; set; }
+        public List<EquipmentType>? Equipment { get; set; }
+        public List<string>? SecondaryMuscleGroups { get; set; }
+        public MovementPattern MovementPattern { get; set; } = MovementPattern.Isolation;
+        public bool IsCompound { get; set; }
+        public ExperienceLevel MinLevel { get; set; } = ExperienceLevel.Beginner;
+        public List<string>? StressTags { get; set; }
     }
 }
