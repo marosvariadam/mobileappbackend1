@@ -58,18 +58,18 @@ namespace mobileappbackend1.Controllers
         }
 
         [HttpPut("{id}")]
-        [Authorize]
+        [Authorize(Roles = "Trainer")]
         public async Task<IActionResult> Update(string id, [FromBody] UpdateExerciseRequest request)
         {
             var existing = await _exerciseService.GetByIdAsync(id);
             if (existing == null) return NotFound();
 
-            if (existing.CreatedByTrainerId != null)
-            {
-                var currentTrainerId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-                if (existing.CreatedByTrainerId != currentTrainerId)
-                    return Forbid();
-            }
+            if (existing.CreatedByTrainerId == null)
+                return BadRequest(new { message = "Cannot edit system default exercises." });
+
+            var currentTrainerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (existing.CreatedByTrainerId != currentTrainerId)
+                return Forbid();
 
             await _exerciseService.UpdateAsync(
                 id,
