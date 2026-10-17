@@ -9,6 +9,7 @@ using mobileappbackend1.Hubs;
 using mobileappbackend1.ML;
 using mobileappbackend1.Models;
 using mobileappbackend1.Planning;
+using mobileappbackend1.Planning.Llm;
 using mobileappbackend1.Services;
 using mobileappbackend1.Settings;
 
@@ -59,6 +60,13 @@ internal class Program
         builder.Services.AddSingleton<PredictionEngineService>();
         builder.Services.AddSingleton<IProgressPredictor>(sp => sp.GetRequiredService<PredictionEngineService>());
         builder.Services.AddScoped<PlanScoringService>();
+
+        // LLM plan generator (Phase 5). The HTTP client is pooled by
+        // AddHttpClient; the API key is read from LlmSettings (user-secrets).
+        builder.Services.AddHttpClient<ILlmClient, AnthropicLlmClient>();
+        builder.Services.AddScoped<LlmPlanService>();
+        builder.Services.AddScoped<PlanRepairService>();
+        builder.Services.AddScoped<PlanGenerationLogService>();
         builder.Services.AddScoped<SyntheticDataGenerator>();
         builder.Services.AddScoped<MetricsLogService>();
         builder.Services.AddScoped<MLTrainingService>();
@@ -278,6 +286,13 @@ internal class Program
             athleteProfiles.Indexes.CreateOne(new CreateIndexModel<AthleteProfile>(
                 Builders<AthleteProfile>.IndexKeys.Ascending(p => p.AthleteId),
                 new CreateIndexOptions { Unique = true }));
+
+            // PlanGenerationLogs: evaluation harness reads newest-first per plan.
+            var planLogs = db.GetCollection<PlanGenerationLog>("PlanGenerationLogs");
+            planLogs.Indexes.CreateOne(new CreateIndexModel<PlanGenerationLog>(
+                Builders<PlanGenerationLog>.IndexKeys
+                    .Ascending(l => l.PlanId)
+                    .Descending(l => l.CreatedAt)));
         }
 
 
