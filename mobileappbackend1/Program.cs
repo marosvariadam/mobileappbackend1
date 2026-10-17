@@ -8,6 +8,7 @@ using MongoDB.Driver;
 using mobileappbackend1.Hubs;
 using mobileappbackend1.ML;
 using mobileappbackend1.Models;
+using mobileappbackend1.Planning;
 using mobileappbackend1.Services;
 using mobileappbackend1.Settings;
 
@@ -56,6 +57,8 @@ internal class Program
         builder.Services.AddSingleton(_ => new MLContext(seed: 1));
         builder.Services.AddScoped<ProgressTrainer>();
         builder.Services.AddSingleton<PredictionEngineService>();
+        builder.Services.AddSingleton<IProgressPredictor>(sp => sp.GetRequiredService<PredictionEngineService>());
+        builder.Services.AddScoped<PlanScoringService>();
         builder.Services.AddScoped<SyntheticDataGenerator>();
         builder.Services.AddScoped<MetricsLogService>();
         builder.Services.AddScoped<MLTrainingService>();

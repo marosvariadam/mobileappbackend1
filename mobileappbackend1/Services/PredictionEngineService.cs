@@ -6,7 +6,7 @@ using mobileappbackend1.Settings;
 namespace mobileappbackend1.Services
 {
     /// <summary>Loads and reloads the trained model, exposes thread-safe Predict, returns null when no model is loaded.</summary>
-    public class PredictionEngineService : IDisposable
+    public class PredictionEngineService : IProgressPredictor, IDisposable
     {
         private readonly MLContext _ml;
         private readonly string _resolvedPath;
