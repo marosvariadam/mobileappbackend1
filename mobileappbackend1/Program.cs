@@ -1,10 +1,14 @@
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.ML;
 using Microsoft.OpenApi.Models;
 using MongoDB.Driver;
+using mobileappbackend1.Controllers;
 using mobileappbackend1.Hubs;
 using mobileappbackend1.ML;
 using mobileappbackend1.Models;
@@ -67,6 +71,35 @@ internal class Program
         builder.Services.AddScoped<LlmPlanService>();
         builder.Services.AddScoped<PlanRepairService>();
         builder.Services.AddScoped<PlanGenerationLogService>();
+
+        // Plan API (Phase 6).
+        builder.Services.AddScoped<PlanService>();
+        builder.Services.AddSingleton<ConstraintPlanGenerator>();
+
+        // Per-trainer rate limit on the LLM-touching endpoints (generate /
+        // refine). Keeps a stuck or chatty trainer from monopolizing provider
+        // quota and from running up the account's bill. 10 req/min each is
+        // generous for an interactive wizard; unauthenticated callers share
+        // a single "anonymous" bucket (they shouldn't reach these endpoints
+        // anyway because of [Authorize], but defense in depth).
+        builder.Services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            options.AddPolicy(PlanController.LlmRateLimitPolicy, context =>
+            {
+                var trainerId = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                                ?? "anonymous";
+                return RateLimitPartition.GetFixedWindowLimiter(trainerId, _ =>
+                    new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit          = 10,
+                        Window               = TimeSpan.FromMinutes(1),
+                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                        QueueLimit           = 0,
+                        AutoReplenishment    = true,
+                    });
+            });
+        });
         builder.Services.AddScoped<SyntheticDataGenerator>();
         builder.Services.AddScoped<MetricsLogService>();
         builder.Services.AddScoped<MLTrainingService>();
@@ -293,6 +326,15 @@ internal class Program
                 Builders<PlanGenerationLog>.IndexKeys
                     .Ascending(l => l.PlanId)
                     .Descending(l => l.CreatedAt)));
+
+            // TrainingPlans: trainer / athlete lookups + newest-first per athlete.
+            var trainingPlans = db.GetCollection<TrainingPlan>("TrainingPlans");
+            trainingPlans.Indexes.CreateOne(new CreateIndexModel<TrainingPlan>(
+                Builders<TrainingPlan>.IndexKeys
+                    .Ascending(p => p.AthleteId)
+                    .Descending(p => p.CreatedAt)));
+            trainingPlans.Indexes.CreateOne(new CreateIndexModel<TrainingPlan>(
+                Builders<TrainingPlan>.IndexKeys.Ascending(p => p.TrainerId)));
         }
 
 
@@ -314,6 +356,7 @@ internal class Program
         app.UseCors();           // must be before Auth so OPTIONS pre-flights are handled
         app.UseAuthentication();
         app.UseAuthorization();
+        app.UseRateLimiter();    // partition key is set from the authenticated user, so after UseAuth
 
         app.MapHealthChecks("/health");
         app.MapControllers();

@@ -1,6 +1,116 @@
 @mobileappbackend1_HostAddress = http://localhost:5233
 
-GET {{mobileappbackend1_HostAddress}}/weatherforecast/
+# Fill these in from an actual sign-in response:
+# - trainerToken: a JWT where the "role" claim is "Trainer"
+# - athleteToken: a JWT where the "role" claim is "Athlete"
+# - athleteId  : the athlete's User.Id (ObjectId string)
+# - planId     : the Id returned by /api/plan/generate
+# - trainingBlockId (optional): a TrainingBlock the plan belongs to
+@trainerToken     = REPLACE_WITH_TRAINER_JWT
+@athleteToken     = REPLACE_WITH_ATHLETE_JWT
+@athleteId        = 507f1f77bcf86cd799439011
+@planId           = 507f1f77bcf86cd799439abc
+@trainingBlockId  = 507f1f77bcf86cd799439def
+
+###
+# Health check (no auth)
+GET {{mobileappbackend1_HostAddress}}/health
+Accept: application/json
+
+###
+# POST /api/plan/generate - trainer: produce a new draft plan
+#   mode: "Constraint" | "LlmOnly" | "Hybrid"
+#   Hybrid runs CP-SAT candidates + one LLM candidate, then ranks them with
+#   the ML scorer. Rate-limited: 10 req/min per trainer.
+POST {{mobileappbackend1_HostAddress}}/api/plan/generate
+Authorization: Bearer {{trainerToken}}
+Content-Type: application/json
+
+{
+  "athleteId": "{{athleteId}}",
+  "mode":      "Hybrid",
+  "weeks":     4,
+  "trainingBlockId": "{{trainingBlockId}}"
+}
+
+###
+# POST /api/plan/{id}/refine - trainer: natural-language edit via the LLM.
+# Rate-limited: 10 req/min per trainer.
+POST {{mobileappbackend1_HostAddress}}/api/plan/{{planId}}/refine
+Authorization: Bearer {{trainerToken}}
+Content-Type: application/json
+
+{
+  "instruction": "Add more shoulder volume on the push day; swap barbell squats for leg press (knee pain)."
+}
+
+###
+# PUT /api/plan/{id} - trainer: manual edit. Any field omitted keeps its
+# current value. Returns the updated plan + validator result.
+PUT {{mobileappbackend1_HostAddress}}/api/plan/{{planId}}
+Authorization: Bearer {{trainerToken}}
+Content-Type: application/json
+
+{
+  "title": "Hypertrophy block, week 1-4",
+  "weeks": 4,
+  "split": "UpperLower",
+  "days": [
+    {
+      "dayIndex": 0,
+      "label":    "Upper A",
+      "exercises": [
+        { "exerciseId": "REPLACE_EXERCISE_ID", "name": "Bench Press", "muscleGroup": "Chest",
+          "sets": 4, "repMin": 6, "repMax": 10, "targetRpe": 8, "restSeconds": 120, "order": 0 },
+        { "exerciseId": "REPLACE_EXERCISE_ID", "name": "Barbell Row", "muscleGroup": "Back",
+          "sets": 4, "repMin": 6, "repMax": 10, "targetRpe": 8, "restSeconds": 120, "order": 1 }
+      ]
+    }
+  ]
+}
+
+###
+# POST /api/plan/{id}/validate - trainer: re-run the validator without saving.
+POST {{mobileappbackend1_HostAddress}}/api/plan/{{planId}}/validate
+Authorization: Bearer {{trainerToken}}
+
+###
+# POST /api/plan/{id}/accept - trainer: Draft -> Accepted. Stores the
+# trainer-final snapshot in the generation log for later evaluation.
+POST {{mobileappbackend1_HostAddress}}/api/plan/{{planId}}/accept
+Authorization: Bearer {{trainerToken}}
+
+###
+# POST /api/plan/{id}/materialize - trainer: expand the accepted plan into
+# Workout documents, one per (week, day). AutoregulationService (Phase 7)
+# fills in the target weights afterwards.
+POST {{mobileappbackend1_HostAddress}}/api/plan/{{planId}}/materialize
+Authorization: Bearer {{trainerToken}}
+Content-Type: application/json
+
+{
+  "startDate": "2026-10-27T00:00:00Z"
+}
+
+###
+# GET /api/plan/{id}/explanation?language=en - trainer OR athlete.
+# Trainer: must own the athlete. Athlete: must own the plan and it must
+# have been accepted (Draft explanations are hidden from the athlete).
+GET {{mobileappbackend1_HostAddress}}/api/plan/{{planId}}/explanation?language=en
+Authorization: Bearer {{trainerToken}}
+Accept: application/json
+
+###
+# GET /api/plan/athlete/{athleteId} - trainer: every plan for an athlete
+# the trainer owns.
+GET {{mobileappbackend1_HostAddress}}/api/plan/athlete/{{athleteId}}
+Authorization: Bearer {{trainerToken}}
+Accept: application/json
+
+###
+# GET /api/plan/me - athlete: only the plans accepted for me.
+GET {{mobileappbackend1_HostAddress}}/api/plan/me
+Authorization: Bearer {{athleteToken}}
 Accept: application/json
 
 ###
