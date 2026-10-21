@@ -26,6 +26,7 @@ namespace mobileappbackend1.Controllers
         private readonly ExerciseService _exercises;
         private readonly UserService _users;
         private readonly WorkoutService _workouts;
+        private readonly TrainingBlockService _blocks;
         private readonly ConstraintPlanGenerator _constraint;
         private readonly PlanScoringService _scoring;
         private readonly PlanRepairService _repair;
@@ -38,6 +39,7 @@ namespace mobileappbackend1.Controllers
             ExerciseService exercises,
             UserService users,
             WorkoutService workouts,
+            TrainingBlockService blocks,
             ConstraintPlanGenerator constraint,
             PlanScoringService scoring,
             PlanRepairService repair,
@@ -49,6 +51,7 @@ namespace mobileappbackend1.Controllers
             _exercises = exercises;
             _users = users;
             _workouts = workouts;
+            _blocks = blocks;
             _constraint = constraint;
             _scoring = scoring;
             _repair = repair;
@@ -102,6 +105,18 @@ namespace mobileappbackend1.Controllers
 
             var (trainerId, _, deny) = await RequireTrainerOwnsAsync(req.AthleteId);
             if (deny != null) return deny;
+
+            // IDOR guard: the trainer must own the referenced block, and the
+            // block must already be assigned to this athlete. Checked before
+            // we spend LLM/CPU on generation so a bad id fails fast.
+            if (!string.IsNullOrEmpty(req.TrainingBlockId))
+            {
+                var block = await _blocks.GetByIdAsync(req.TrainingBlockId);
+                if (block == null
+                    || block.TrainerId != trainerId
+                    || block.AthleteId != req.AthleteId)
+                    return BadRequest(new { message = "Invalid trainingBlockId." });
+            }
 
             var profile = await _profiles.GetByAthleteIdAsync(req.AthleteId);
             if (profile == null)
