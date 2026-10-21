@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -15,10 +16,16 @@ namespace mobileappbackend1.Controllers
     [Authorize]
     public class PlanController : ControllerBase
     {
-        // Named rate-limit policy applied to the two LLM-touching endpoints
-        // (generate / refine). Partitioned per trainer in Program.cs so a
-        // slow or stuck trainer can't starve the shared bucket.
+        // Named rate-limit policy applied to the LLM-touching endpoints
+        // (generate / refine / explanation). Partitioned per trainer in
+        // Program.cs so a slow or stuck trainer can't starve the shared bucket.
         public const string LlmRateLimitPolicy = "plan-llm";
+
+        // Explain's language parameter flows into the LLM prompt. Allow only
+        // short locale codes (xx or xx-YY) to foreclose prompt-injection via
+        // the field; anything else is rejected before we build the prompt.
+        private static readonly Regex LocaleCode =
+            new(@"^[a-z]{2}(-[A-Z]{2})?$", RegexOptions.Compiled);
 
         private readonly PlanService _plans;
         private readonly PlanGenerationLogService _logs;
@@ -79,7 +86,11 @@ namespace mobileappbackend1.Controllers
             return (trainerId, athlete, null);
         }
 
-        // Same, resolving the athlete via a plan id.
+        // Same, resolving the athlete via a plan id. Also pins the ownership
+        // to plan.TrainerId directly so a trainer reassignment on the athlete
+        // can't retroactively hand this plan to a different trainer: both
+        // the current athlete->trainer link AND the plan's own TrainerId
+        // must match the caller.
         private async Task<(string trainerId, TrainingPlan plan, IActionResult? deny)> RequireTrainerOwnsPlanAsync(
             string planId)
         {
@@ -88,7 +99,11 @@ namespace mobileappbackend1.Controllers
                 return (string.Empty, default!, NotFound(new { message = "Plan not found." }));
 
             var (trainerId, _, deny) = await RequireTrainerOwnsAsync(plan.AthleteId);
-            return (trainerId, plan, deny);
+            if (deny != null) return (trainerId, plan, deny);
+            if (!string.IsNullOrEmpty(plan.TrainerId) && plan.TrainerId != trainerId)
+                return (trainerId, plan, Forbid());
+
+            return (trainerId, plan, null);
         }
 
         // ── POST /api/plan/generate ─────────────────────────────────────────
@@ -345,7 +360,15 @@ namespace mobileappbackend1.Controllers
             if (plan.Status == PlanStatus.Materialized)
                 return Conflict(new { message = "Plan is already materialized." });
 
-            var workouts = PlanMaterializer.Materialize(plan, req.StartDate, trainerId);
+            List<Workout> workouts;
+            try
+            {
+                workouts = PlanMaterializer.Materialize(plan, req.StartDate, trainerId);
+            }
+            catch (ArgumentOutOfRangeException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
             foreach (var w in workouts)
                 await _workouts.CreateAsync(w);
 
@@ -367,9 +390,13 @@ namespace mobileappbackend1.Controllers
 
         [HttpGet("{id}/explanation")]
         [Authorize]
+        [EnableRateLimiting(LlmRateLimitPolicy)]
         public async Task<IActionResult> Explain(
             string id, [FromQuery] string language = "en", CancellationToken ct = default)
         {
+            if (!LocaleCode.IsMatch(language))
+                return BadRequest(new { message = "language must be an ISO locale code like 'en' or 'en-US'." });
+
             var plan = await _plans.GetByIdAsync(id, ct);
             if (plan == null) return NotFound();
 

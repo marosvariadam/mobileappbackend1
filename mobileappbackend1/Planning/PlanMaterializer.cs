@@ -9,9 +9,34 @@ namespace mobileappbackend1.Planning
     // (Phase 7) fills them in from logged history.
     public static class PlanMaterializer
     {
+        // Hard cap on the fan-out. 7 days * 52 weeks = 364 is the natural
+        // ceiling (one plan can't book past a year or more than daily);
+        // anything above this is almost certainly bad input (a 10000-week
+        // plan, a 100-day microcycle) and we refuse to insert it rather than
+        // flood Mongo with ghost workouts.
+        public const int MaxWorkoutsPerMaterialization = 400;
+        public const int MaxDaysPerWeek = 7;
+        public const int MaxDayIndex = 6;
+        public const int MaxWeeks = 52;
+
         public static List<Workout> Materialize(
             TrainingPlan plan, DateTime startDate, string trainerId)
         {
+            if (plan.Weeks < 1 || plan.Weeks > MaxWeeks)
+                throw new ArgumentOutOfRangeException(
+                    nameof(plan), $"plan.Weeks must be in 1..{MaxWeeks} (got {plan.Weeks}).");
+            if (plan.Days.Count == 0 || plan.Days.Count > MaxDaysPerWeek)
+                throw new ArgumentOutOfRangeException(
+                    nameof(plan), $"plan.Days.Count must be in 1..{MaxDaysPerWeek} (got {plan.Days.Count}).");
+            if (plan.Days.Any(d => d.DayIndex < 0 || d.DayIndex > MaxDayIndex))
+                throw new ArgumentOutOfRangeException(
+                    nameof(plan), $"every PlanDay.DayIndex must be in 0..{MaxDayIndex}.");
+            if (plan.Weeks * plan.Days.Count > MaxWorkoutsPerMaterialization)
+                throw new ArgumentOutOfRangeException(
+                    nameof(plan),
+                    $"plan.Weeks * plan.Days.Count ({plan.Weeks * plan.Days.Count}) exceeds the "
+                    + $"materialization cap of {MaxWorkoutsPerMaterialization}.");
+
             var workouts = new List<Workout>(plan.Weeks * plan.Days.Count);
             for (int week = 0; week < plan.Weeks; week++)
             {
