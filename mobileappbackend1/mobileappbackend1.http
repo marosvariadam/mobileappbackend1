@@ -114,3 +114,11 @@ Authorization: Bearer {{athleteToken}}
 Accept: application/json
 
 ###
+# GET /api/autoregulation/{athleteId}/next-week - trainer: suggested
+# weight / set adjustments for next week, drawn from the last ~4 weeks of
+# logged workouts and the athlete's current accepted plan.
+GET {{mobileappbackend1_HostAddress}}/api/autoregulation/{{athleteId}}/next-week
+Authorization: Bearer {{trainerToken}}
+Accept: application/json
+
+###
