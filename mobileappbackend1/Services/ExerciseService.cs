@@ -75,6 +75,13 @@ namespace mobileappbackend1.Services
         {
             if (seeds.Count == 0) return;
 
+            // Use UpdateOneModel with $set on the mutable fields instead of
+            // ReplaceOneModel: seed rows carry no Id, which the driver would
+            // serialize as `_id: null`. On update that fails with
+            // "immutable field _id altered to null"; on insert the first
+            // row lands as `_id: null` and every following row collides on
+            // the _id index. With $set the _id of an existing doc is
+            // untouched, and on an upsert insert Mongo auto-generates one.
             var writes = new List<WriteModel<Exercise>>(seeds.Count);
             foreach (var seed in seeds)
             {
@@ -82,7 +89,19 @@ namespace mobileappbackend1.Services
                     Builders<Exercise>.Filter.Eq(e => e.Name, seed.Name),
                     Builders<Exercise>.Filter.Eq(e => e.CreatedByTrainerId, (string?)null));
 
-                writes.Add(new ReplaceOneModel<Exercise>(filter, seed) { IsUpsert = true });
+                var update = Builders<Exercise>.Update
+                    .Set(e => e.Name,                  seed.Name)
+                    .Set(e => e.MuscleGroup,           seed.MuscleGroup)
+                    .Set(e => e.Description,           seed.Description)
+                    .Set(e => e.SecondaryMuscleGroups, seed.SecondaryMuscleGroups)
+                    .Set(e => e.MovementPattern,       seed.MovementPattern)
+                    .Set(e => e.IsCompound,            seed.IsCompound)
+                    .Set(e => e.MinLevel,              seed.MinLevel)
+                    .Set(e => e.Equipment,             seed.Equipment)
+                    .Set(e => e.StressTags,            seed.StressTags)
+                    .Set(e => e.CreatedByTrainerId,    (string?)null);
+
+                writes.Add(new UpdateOneModel<Exercise>(filter, update) { IsUpsert = true });
             }
 
             await _exercises.BulkWriteAsync(writes, new BulkWriteOptions { IsOrdered = false });
